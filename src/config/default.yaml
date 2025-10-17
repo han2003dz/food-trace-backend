@@ -1,0 +1,14 @@
+auth:
+  eth:
+    signatureMessage: geno-marketplace
+
+secure:
+  rateLimit:
+    ttl: 1000
+    limit: 20
+
+queue:
+  crawl:
+    name: 'crawl'
+    event: 'UpdatedUserParametersEvent'
+    blockKey: 'blockNumber'

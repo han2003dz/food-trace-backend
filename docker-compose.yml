@@ -1,0 +1,64 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: food-trace-db
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-123456}
+      POSTGRES_DB: ${DB_NAME:-food_trace}
+    ports:
+      - '${DB_PORT:-5432}:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USER:-postgres}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: food-trace-redis
+    restart: always
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    command: ['redis-server', '--save', '20', '1', '--loglevel', 'warning']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: food-trace-be-backend:latest
+    container_name: food-trace-backend
+    restart: always
+    env_file: .env
+    ports:
+      - '${PORT:-3000}:3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ['npm', 'run', 'start:dev']
+    volumes:
+      - .:/app
+      - /app/node_modules
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'curl -f http://localhost:${PORT:-3000}/health || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
+
+networks:
+  default:
+    name: food-trace-network

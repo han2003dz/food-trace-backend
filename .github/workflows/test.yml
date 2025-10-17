@@ -1,0 +1,12 @@
+name: Test Self-hosted Runner
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-ecr-access:
+    runs-on: [arc-runner-set]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3

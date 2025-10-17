@@ -1,0 +1,87 @@
+x-templates:
+  api: &api
+    image: its-nestjs-api
+    build:
+      context: .
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+    restart: always
+    env_file: .env
+    depends_on:
+      - redis
+      - postgres
+
+services:
+  # reverse-proxy:
+  #   image: traefik:v3.4
+  #   container_name: reverse-proxy
+  #   command:
+  #     - --providers.docker
+  #     - --providers.docker.exposedbydefault=false
+  #     - --entrypoints.web.address=:80
+  #     - --entrypoints.websecure.address=:443
+  #     - --certificatesresolvers.letsencrypt.acme.email=nmkhoa89@gmail.com
+  #     - --certificatesresolvers.letsencrypt.acme.storage=/acme.json
+  #     - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+  #     - --api.insecure=true
+  #     - --log.level=DEBUG
+  #   restart: unless-stopped
+  #   ports:
+  #     - '80:80'
+  #     - '443:443'
+  #     - '8080:8080' # Traefik dashboard
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #     - ./acme.json:/acme.json:rw
+
+  api:
+    <<: *api
+    ports:
+      - '3333:3333'
+    command: sh -c "npm run migration:run && npm run seeder && node src/main.js"
+    container_name: api
+    # labels:
+    #   - 'traefik.enable=true'
+    #   - 'traefik.http.routers.api.rule=Host(geno-mkp-api.itsstg.space)'
+    #   - 'traefik.http.routers.api.entrypoints=web,websecure'
+    #   - 'traefik.http.routers.api.tls=true'
+    #   - 'traefik.http.routers.api.tls.certresolver=letsencrypt'
+    #   - 'traefik.http.services.api.loadbalancer.server.port=3333'
+
+  queue:
+    <<: *api
+    command: sh -c "node src/bull.js"
+    container_name: queue
+    restart: always
+    depends_on:
+      - api
+
+  postgres:
+    image: postgres:15.7
+    container_name: postgres
+    restart: always
+    volumes:
+      - ./tmp/postgres-data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_DATABASE}
+    ports:
+      - '5432:5432'
+
+  redis:
+    image: redis:latest
+    container_name: redis
+    volumes:
+      - ./tmp/redis-data:/data
+    restart: always
+    expose:
+      - ${REDIS_PORT:-6379}
+
+networks:
+  default:
+    name: its-nestjs-network
+    external: true
