@@ -2,7 +2,6 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { Repository } from 'typeorm'
 import { User } from './entities/user.entity'
-import { ROLE } from '../../common/enums/user-role'
 import { paginate, PaginateQuery } from 'nestjs-paginate'
 import { userPaginateConfig } from './config/user.paginate'
 
@@ -29,13 +28,13 @@ export class UserService {
     })
   }
 
-  async firstOrCreate(wallet_address: string) {
+  async firstOrCreate(wallet_address: string, role: number) {
     let user = await this.findOneByWalletAddress(wallet_address)
 
     if (!user) {
       user = this.userRepository.create({
         wallet_address: wallet_address,
-        role: ROLE.USER,
+        role,
       })
       await this.userRepository.save(user)
     }
