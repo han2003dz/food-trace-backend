@@ -4,6 +4,7 @@ import { Repository } from 'typeorm'
 import { User } from './entities/user.entity'
 import { paginate, PaginateQuery } from 'nestjs-paginate'
 import { userPaginateConfig } from './config/user.paginate'
+import getLast6Chars from '@app/utils/format'
 
 @Injectable()
 export class UserService {
@@ -30,11 +31,12 @@ export class UserService {
 
   async firstOrCreate(wallet_address: string, role: number) {
     let user = await this.findOneByWalletAddress(wallet_address)
-
+    const username = getLast6Chars(wallet_address)
     if (!user) {
       user = this.userRepository.create({
         wallet_address: wallet_address,
         role,
+        username,
       })
       await this.userRepository.save(user)
     }
@@ -51,7 +53,7 @@ export class UserService {
     return affiliateCode
   }
 
-  async getMe(user: User): Promise<User> {
+  async getMyProfile(user: User): Promise<User> {
     return this.userRepository.findOne({
       where: { id: user.id },
     })

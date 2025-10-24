@@ -34,6 +34,7 @@
     "seeder": "node ./src/database/seeders/seeder.js"
   },
   "dependencies": {
+    "@ambire/signature-validator": "^1.5.0",
     "@aws-sdk/client-s3": "^3.840.0",
     "@coral-xyz/anchor": "^0.31.1",
     "@keyv/redis": "^4.4.0",
