@@ -10,9 +10,10 @@ import { CrawlProducer } from './producers/crawl.producer'
 import { CrawlModule } from '../crawl/crawl.module'
 import { CrawlProcessor } from './processors/crawl.processor'
 import { ScheduleModule } from '@nestjs/schedule'
-import { UserModule } from '../user/user.module'
 import redisConfig from '../../config/redis.config'
 import { DatabaseModule } from './../../database/database.module'
+import { OnchainEventModule } from '../onchain-events/onchain-events.module'
+import { EventParserService } from '../crawl/services/event-parser.service'
 @Module({
   imports: [
     ScheduleModule.forRoot(),
@@ -43,8 +44,8 @@ import { DatabaseModule } from './../../database/database.module'
     DatabaseModule,
     CacheModule,
     CrawlModule,
-    UserModule,
+    OnchainEventModule,
   ],
-  providers: [CrawlProducer, CrawlProcessor],
+  providers: [CrawlProducer, CrawlProcessor, EventParserService],
 })
 export class BullQueueModule {}

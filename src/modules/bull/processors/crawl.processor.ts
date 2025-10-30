@@ -1,52 +1,48 @@
 import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq'
-import { Inject, Logger } from '@nestjs/common'
-import { ConfigService } from '@nestjs/config'
+import { Logger } from '@nestjs/common'
 import { Job } from 'bullmq'
-import { Cacheable } from 'cacheable'
-import { CACHE_INSTANCE } from './../../../common/constant/provider.constant'
 import { Web3Service } from './../../crawl/services/web3.service'
-import { UserService } from './../../user/user.service'
-import { BLOCK_KEY } from '../../../common/constant/bull-queue.constant'
+import { EventParserService } from '@app/modules/crawl/services/event-parser.service'
+import { OnchainEventService } from '@app/modules/onchain-events/onchain-events.service'
 
 @Processor('crawl')
 export class CrawlProcessor extends WorkerHost {
   constructor(
-    @Inject(CACHE_INSTANCE) private cacheable: Cacheable,
-    private readonly configService: ConfigService,
     private readonly web3Service: Web3Service,
-    private readonly userService: UserService,
+    private readonly parser: EventParserService,
+    private readonly onchainEventService: OnchainEventService,
   ) {
     super()
   }
   private readonly logger = new Logger(CrawlProcessor.name)
 
-  async process(job: Job<any, any, string>): Promise<any> {
-    switch (job.name) {
-      case 'crawl':
-        try {
-          const data = await this.web3Service.getEventLogs(
-            job.data.fromBlockNumber,
-            job.data.toBlockNumber,
-            job.data.event,
-          )
-          if (!data.length) {
-            this.logger.warn(
-              `No events found for block range ${job.data.fromBlockNumber} to ${job.data.toBlockNumber}`,
-            )
-          } else {
-            // await this.userService.updateUsersData(data)
-          }
+  async process(job: Job<any, any, string>): Promise<void> {
+    const { fromBlockNumber, toBlockNumber, event } = job.data
 
-          const blockKey = BLOCK_KEY
-          await this.cacheable.set(blockKey, job.data.toBlockNumber + 1)
-        } catch (error) {
-          throw error
-        }
-        break
-
-      default:
-        this.logger.warn(`Unknown job type: ${job.name}`)
+    const logs = await this.web3Service.getEventLogs(
+      fromBlockNumber,
+      toBlockNumber,
+      event,
+    )
+    if (!logs.length) {
+      this.logger.warn(
+        `[${event}] No logs between ${fromBlockNumber} → ${toBlockNumber}`,
+      )
+      return
     }
+
+    const parsedEvents = logs
+      .map((log) => this.parser.parse(log))
+      .filter((e) => !!e)
+      .map((p) => ({
+        event_name: p.event_name,
+        args: p.args,
+        tx_hash: p.tx_hash,
+        block_number: p.block_number,
+        contract_address: p.contract_address,
+      }))
+
+    await this.onchainEventService.saveEvents(parsedEvents)
   }
 
   @OnWorkerEvent('active')

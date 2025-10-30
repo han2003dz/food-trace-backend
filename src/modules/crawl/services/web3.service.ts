@@ -1,8 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { ethers } from 'ethers'
-import m87Artifact from '../contracts/M87Contract.json'
-import { UserEventData } from '../../../modules/user/types/user.interface'
+import foodTraceArtifact from '../contracts/TraceabilityMerkleRegistry.json'
 
 @Injectable()
 export class Web3Service {
@@ -15,7 +14,7 @@ export class Web3Service {
     )
     this.contract = new ethers.Contract(
       contractAddress,
-      m87Artifact.abi,
+      foodTraceArtifact.abi,
       this.provider,
     )
     this.logger.log(
@@ -33,26 +32,9 @@ export class Web3Service {
   async getEventLogs(fromBlock: number, toBlock: number, eventName: string) {
     const filter = this.contract.filters[eventName]()
     const logs = await this.contract.queryFilter(filter, fromBlock, toBlock)
-    const data: UserEventData[] = []
-    logs.forEach((log) => {
-      const [userAddress, level, reputation, parameterCount] = log.args
-      const eventData: UserEventData = {
-        userAddress,
-        level: level.toNumber(),
-        reputation: reputation.toNumber(),
-        parameterCount: parameterCount.toNumber(),
-        parameters: [],
-      }
-      const parameters = []
-      for (let i = 0; i < log.args[4].length; i++) {
-        parameters.push({
-          parameter: log.args[4][i].parameter.toNumber(),
-          value: log.args[4][i].value.toNumber(),
-        })
-      }
-      eventData.parameters = parameters
-      data.push(eventData)
-    })
-    return data
+    this.logger.log(
+      `📦 [${eventName}] ${logs.length} logs from ${fromBlock} → ${toBlock}`,
+    )
+    return logs
   }
 }

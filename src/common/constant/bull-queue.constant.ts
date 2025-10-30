@@ -4,7 +4,11 @@ export const QUEUE = {
 }
 
 export const BLOCK_KEY = 'blockNumber'
-export const CRAWL_EVENT = 'UpdatedUserParametersEvent'
+export const CRAWL_EVENT = [
+  'RootCommitted',
+  'BatchCodeBound',
+  'CommitterChanged',
+]
 
 export const JOB = {
   TOKEN_PURCHASED: 'token_purchased',

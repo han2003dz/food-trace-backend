@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm'
 
-export class CreateUsersTable1761280707569 implements MigrationInterface {
-  name = 'CreateUsersTable1761280707569'
+export class AddOnchainEventTable1761815691222 implements MigrationInterface {
+  name = 'AddOnchainEventTable1761815691222'
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
@@ -29,6 +29,18 @@ export class CreateUsersTable1761280707569 implements MigrationInterface {
       `CREATE INDEX "idx_product_logs_created_at" ON "product_logs" ("created_at") `,
     )
     await queryRunner.query(
+      `CREATE TABLE "onchain_events" ("id" SERIAL NOT NULL, "event_name" character varying(255) NOT NULL, "args" jsonb NOT NULL, "tx_hash" character varying(66) NOT NULL, "block_number" bigint NOT NULL, "contract_address" character varying(42) NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_334196a0f9bbb367609c7c4114b" PRIMARY KEY ("id"))`,
+    )
+    await queryRunner.query(
+      `CREATE INDEX "IDX_e68b29ff3cad42af2da7f3a34f" ON "onchain_events" ("event_name") `,
+    )
+    await queryRunner.query(
+      `CREATE UNIQUE INDEX "IDX_5fb3dff07bcfc71b66907fc19f" ON "onchain_events" ("tx_hash") `,
+    )
+    await queryRunner.query(
+      `CREATE INDEX "IDX_fe50107707a47a8668c17a2170" ON "onchain_events" ("block_number") `,
+    )
+    await queryRunner.query(
       `ALTER TABLE "products" ADD CONSTRAINT "FK_81fa20f5a30dfce70b9d5b75e59" FOREIGN KEY ("currentOwnerId") REFERENCES "users"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`,
     )
     await queryRunner.query(
@@ -49,6 +61,16 @@ export class CreateUsersTable1761280707569 implements MigrationInterface {
     await queryRunner.query(
       `ALTER TABLE "products" DROP CONSTRAINT "FK_81fa20f5a30dfce70b9d5b75e59"`,
     )
+    await queryRunner.query(
+      `DROP INDEX "public"."IDX_fe50107707a47a8668c17a2170"`,
+    )
+    await queryRunner.query(
+      `DROP INDEX "public"."IDX_5fb3dff07bcfc71b66907fc19f"`,
+    )
+    await queryRunner.query(
+      `DROP INDEX "public"."IDX_e68b29ff3cad42af2da7f3a34f"`,
+    )
+    await queryRunner.query(`DROP TABLE "onchain_events"`)
     await queryRunner.query(`DROP INDEX "public"."idx_product_logs_created_at"`)
     await queryRunner.query(`DROP INDEX "public"."idx_product_logs_user_id"`)
     await queryRunner.query(`DROP INDEX "public"."idx_product_logs_product_id"`)

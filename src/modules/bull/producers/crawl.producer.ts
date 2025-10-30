@@ -23,38 +23,34 @@ export class CrawlProducer {
   async addCrawlJob() {
     try {
       const blockKey = BLOCK_KEY
-      const blockPerTime =
-        this.configService.getOrThrow<string>('config.nodeEnv') === 'production'
-          ? this.configService.getOrThrow<number>('config.rpcLimitMainnet')
-          : this.configService.getOrThrow<number>('config.rpcLimitTestnet')
-      const event = CRAWL_EVENT
-      let fromBlockNumber: number
-
-      const [currentBlockNumber, latestBlockNumber] = await Promise.all([
+      const blockPerTime = this.configService.get<number>(
+        'config.rpcLimitTestnet',
+        5,
+      )
+      const [cachedBlock, latestBlock] = await Promise.all([
         this.cacheable.get<number>(blockKey),
         this.web3Service.getLatestBlockNumber(),
       ])
 
-      fromBlockNumber = currentBlockNumber
-      if (!fromBlockNumber) {
-        this.logger.warn(`Block number not found in cache for key: ${blockKey}`)
-        fromBlockNumber = this.configService.getOrThrow<number>(
-          'config.defaultBlockNumber',
-        )
-      }
-
+      const fromBlockNumber =
+        cachedBlock ??
+        this.configService.get<number>('config.defaultBlockNumber')
       const toBlockNumber = Math.min(
-        fromBlockNumber + blockPerTime,
-        latestBlockNumber,
+        fromBlockNumber + blockPerTime - 1,
+        latestBlock,
       )
 
-      await this.crawlQueue.add('crawl', {
-        fromBlockNumber,
-        toBlockNumber,
-        event,
-      })
-    } catch (error) {
-      this.logger.error('Error retrieving block number from cache', error)
+      for (const event of CRAWL_EVENT) {
+        await this.crawlQueue.add('crawl', {
+          fromBlockNumber,
+          toBlockNumber,
+          event,
+        })
+      }
+
+      await this.cacheable.set(blockKey, toBlockNumber + 1)
+    } catch (err) {
+      this.logger.error('Error scheduling crawl job:', err)
     }
   }
 }

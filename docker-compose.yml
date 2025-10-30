@@ -10,7 +10,7 @@ services:
     ports:
       - '${DB_PORT:-5432}:5432'
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - ./tmp/pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U ${DB_USER:-postgres}']
       interval: 10s
@@ -24,6 +24,8 @@ services:
     ports:
       - '${REDIS_PORT:-6379}:6379'
     command: ['redis-server', '--save', '20', '1', '--loglevel', 'warning']
+    volumes:
+      - ./tmp/redis:/data
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 10s
@@ -34,7 +36,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: food-trace-be-backend:latest
+    image: food-trace-be:latest
     container_name: food-trace-backend
     restart: always
     env_file: .env
@@ -45,16 +47,28 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: ['npm', 'run', 'start:dev']
-    volumes:
-      - .:/app
-      - /app/node_modules
+    command: sh -c "npm run migration:run && node src/main.js"
     healthcheck:
       test:
         ['CMD-SHELL', 'curl -f http://localhost:${PORT:-3000}/health || exit 1']
       interval: 15s
       timeout: 5s
       retries: 5
+
+  queue:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: food-trace-queue
+    container_name: food-trace-queue
+    restart: always
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: sh -c "node src/bull.js"
 
 volumes:
   pgdata:
