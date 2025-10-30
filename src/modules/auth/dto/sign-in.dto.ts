@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger'
-import { Expose, Transform } from 'class-transformer'
-import { IsNotEmpty, IsNumber, IsString } from 'class-validator'
+import { Expose } from 'class-transformer'
+import { IsNotEmpty, IsString } from 'class-validator'
 import { IsWalletAddress } from './../../../validators/is-wallet-address.validator'
 
 export class SignInDto {
@@ -15,12 +15,6 @@ export class SignInDto {
   @IsString()
   @IsNotEmpty()
   signature: string
-
-  @ApiProperty()
-  @Transform(({ value }) => Number(value))
-  @IsNumber()
-  @IsNotEmpty()
-  role: number
 }
 
 export class UserDto {

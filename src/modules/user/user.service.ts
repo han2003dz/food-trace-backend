@@ -29,14 +29,14 @@ export class UserService {
     })
   }
 
-  async firstOrCreate(wallet_address: string, role: number) {
+  async firstOrCreate(wallet_address: string) {
     let user = await this.findOneByWalletAddress(wallet_address)
     const username = getLast6Chars(wallet_address)
     if (!user) {
       user = this.userRepository.create({
         wallet_address: wallet_address,
-        role,
         username,
+        role: 0,
       })
       await this.userRepository.save(user)
     }

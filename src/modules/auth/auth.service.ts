@@ -33,17 +33,15 @@ export class AuthService {
   async signIn({
     signature,
     wallet_address,
-    role,
   }: SignInDto): Promise<SignInResponseDto> {
     try {
       const { isValid, message } = await this.verifyMessage({
         wallet_address,
         signature,
-        role,
       } as any)
       if (!isValid) throw new UnauthorizedException(message)
 
-      const user = await this.userService.firstOrCreate(wallet_address, role)
+      const user = await this.userService.firstOrCreate(wallet_address)
 
       const payload: JwtPayload = {
         sub: user.id,
