@@ -14,6 +14,7 @@ import redisConfig from '../../config/redis.config'
 import { DatabaseModule } from './../../database/database.module'
 import { OnchainEventModule } from '../onchain-events/onchain-events.module'
 import { EventParserService } from '../crawl/services/event-parser.service'
+import { BatchesModule } from '../batches/batches.module'
 @Module({
   imports: [
     ScheduleModule.forRoot(),
@@ -45,6 +46,7 @@ import { EventParserService } from '../crawl/services/event-parser.service'
     CacheModule,
     CrawlModule,
     OnchainEventModule,
+    BatchesModule,
   ],
   providers: [CrawlProducer, CrawlProcessor, EventParserService],
 })

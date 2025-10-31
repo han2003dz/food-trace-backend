@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { Repository } from 'typeorm'
 import { OnchainEventEntity } from './entities/onchain-events.entity'
-import { CreateOnchainEventDto } from './dto/create-onchain-events.dto'
+import { ParsedEvent } from '../crawl/types/parsed-event.type'
 
 @Injectable()
 export class OnchainEventService {
@@ -13,14 +13,20 @@ export class OnchainEventService {
     private readonly eventRepo: Repository<OnchainEventEntity>,
   ) {}
 
-  async saveEvents(events: CreateOnchainEventDto[]): Promise<void> {
-    if (!events?.length) return
+  async saveEvents(events: ParsedEvent[]) {
+    if (!events.length) return
 
     try {
-      await this.eventRepo.upsert(events, ['tx_hash'])
-      this.logger.log(`✅ Saved ${events.length} onchain events`)
+      await this.eventRepo
+        .createQueryBuilder()
+        .insert()
+        .values(events)
+        .orUpdate(['args', 'block_number'], ['tx_hash', 'event_name'])
+        .execute()
+
+      this.logger.log(`Saved ${events.length} onchain events`)
     } catch (error) {
-      this.logger.error('❌ Failed to save onchain events:', error.message)
+      this.logger.error('Failed to save onchain events:', error)
       throw error
     }
   }
