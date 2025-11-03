@@ -41,4 +41,14 @@ export class OnchainEventService {
       order: { block_number: 'DESC' },
     })
   }
+
+  async findByProductId(productId: string) {
+    return this.eventRepo
+      .createQueryBuilder('e')
+      .leftJoinAndSelect('e.batch', 'b')
+      .leftJoinAndSelect('b.product', 'p')
+      .where('p.id = :productId', { productId })
+      .orderBy('e.created_at', 'ASC')
+      .getMany()
+  }
 }

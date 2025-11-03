@@ -14,6 +14,7 @@ import { AdminModule } from './modules/admin/admin.module'
 import { ProductModule } from './modules/product/product.module'
 import { ProductLogModule } from './modules/product-log/product-log.module'
 import { DatabaseModule } from './database/database.module'
+import { BatchesModule } from './modules/batches/batches.module'
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { DatabaseModule } from './database/database.module'
     AdminModule,
     ProductModule,
     ProductLogModule,
+    BatchesModule,
   ],
   controllers: [],
   providers: [
