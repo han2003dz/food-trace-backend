@@ -41,8 +41,8 @@ export class BatchEntity {
   product_id: string | null
 
   @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
-  @JoinColumn({ name: 'owner_id' })
-  owner: User | null
+  @JoinColumn({ name: 'created_by_id' })
+  created_by: User | null
 
   @Column({ type: 'uuid', nullable: true })
   owner_id: string | null

@@ -1,5 +1,8 @@
-import { Body, Controller, Get, Post } from '@nestjs/common'
+import { Body, Controller, Get, Post, Req } from '@nestjs/common'
 import { BatchesService } from './batches.service'
+import { ApiOperation, ApiResponse } from '@nestjs/swagger'
+import { CreateBatchDto } from './dto/create-batch.dto'
+import { Request } from 'express'
 
 @Controller('batches')
 export class BatchesController {
@@ -10,12 +13,11 @@ export class BatchesController {
     return this.batchesService.findAll()
   }
 
-  @Post()
-  createBatch(@Body() body: any) {
-    const result = this.batchesService.createBatchOnchain(body)
-    return {
-      message: 'Batch creation submitted on-chain',
-      result,
-    }
+  @Post('/create')
+  @ApiOperation({ summary: 'Create new batch for a product' })
+  @ApiResponse({ status: 201, description: 'Batch created successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid input data' })
+  createBatch(@Body() dto: CreateBatchDto, @Req() req: Request) {
+    return this.batchesService.createBatchOnchain(dto, req.user)
   }
 }

@@ -14,28 +14,41 @@ export class Product {
   @PrimaryGeneratedColumn('uuid')
   id: string
 
-  @Column()
+  @Index('idx_product_name')
+  @Column({ type: 'varchar', length: 255 })
   name: string
 
-  @Column({ nullable: true })
-  origin: string
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  origin: string | null
 
   @Column({ type: 'date', nullable: true })
-  manufacture_date: Date
+  manufacture_date: Date | null
 
   @Column({ type: 'date', nullable: true })
-  expiry_date: Date
+  expiry_date: Date | null
 
-  @ManyToOne(() => User)
   @Index('idx_products_owner')
-  current_owner: User
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  current_owner: User | null
+
+  @Column({ type: 'varchar', length: 42, nullable: true })
+  owner_wallet: string | null
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  image_url: string | null
+
+  @Column({ type: 'text', nullable: true })
+  description: string | null
 
   @Index('idx_products_onchain_id')
   @Column({ type: 'bigint', unique: true, nullable: true })
-  onchain_id: number
+  onchain_id: number | null
 
-  @Column({ nullable: true })
-  tx_hash: string
+  @Column({ type: 'varchar', length: 66, nullable: true })
+  leaf_hash: string | null
+
+  @Column({ type: 'jsonb', nullable: true })
+  metadata: Record<string, any> | null
 
   @CreateDateColumn()
   created_at: Date

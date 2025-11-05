@@ -15,6 +15,7 @@ import { ProductModule } from './modules/product/product.module'
 import { ProductLogModule } from './modules/product-log/product-log.module'
 import { DatabaseModule } from './database/database.module'
 import { BatchesModule } from './modules/batches/batches.module'
+import { PublicTraceModule } from './modules/public-trace/public-trace.module'
 
 @Module({
   imports: [
@@ -43,6 +44,8 @@ import { BatchesModule } from './modules/batches/batches.module'
     ProductModule,
     ProductLogModule,
     BatchesModule,
+    ProductModule,
+    PublicTraceModule,
   ],
   controllers: [],
   providers: [

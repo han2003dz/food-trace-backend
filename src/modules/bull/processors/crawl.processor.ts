@@ -46,10 +46,10 @@ export class CrawlProcessor extends WorkerHost {
     }
 
     for (const event of parsedEvents) {
+      console.log('event', event)
       try {
         switch (event.event_name) {
           case 'BatchCodeBound':
-            console.log('event', event)
             await this.handleBatchCodeBound(event)
             break
 
@@ -75,8 +75,8 @@ export class CrawlProcessor extends WorkerHost {
     }
   }
 
-  private async handleBatchCodeBound(evt: ParsedEvent) {
-    const { args, tx_hash, block_number } = evt
+  private async handleBatchCodeBound(event: ParsedEvent) {
+    const { args, tx_hash, block_number } = event
 
     const batchCode = args?.batchCode
     const batchId = Number(args?.batchId)
@@ -91,7 +91,7 @@ export class CrawlProcessor extends WorkerHost {
       batch_code: batchCode,
       batch_code_hash: batchCodeHash,
       onchain_batch_id: batchId,
-      committer: evt.args.committer || null,
+      committer: event.args.committer || null,
       status: 'verified',
       metadata: {
         tx_hash,
