@@ -11,14 +11,14 @@ export class ProductController {
 
   @Post('/create')
   @Auth()
-  @ApiOperation({ summary: 'Create Product' })
+  @ApiOperation({ summary: 'Create a new product' })
   create(@Body() dto: CreateProductDto, @Req() req: Request) {
     return this.productService.createProduct(dto, req.user)
   }
 
-  @Get()
+  @Get('/my')
   @ApiOperation({ summary: 'List my products' })
-  list(@Req() req: Request) {
+  listByOwner(@Req() req: Request) {
     return this.productService.listByOwner(req.user)
   }
 }
