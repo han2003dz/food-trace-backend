@@ -5,6 +5,7 @@ import { ProductController } from './product.controller'
 import { ProductService } from './product.service'
 import { JwtModule } from '@nestjs/jwt'
 import { UserModule } from '../user/user.module'
+import { OrganizationsModule } from '../organizations/organizations.module'
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { UserModule } from '../user/user.module'
       signOptions: { expiresIn: process.env.JWT_EXPIRES_IN || '1d' },
     }),
     UserModule,
+    OrganizationsModule,
   ],
   controllers: [ProductController],
   providers: [ProductService],

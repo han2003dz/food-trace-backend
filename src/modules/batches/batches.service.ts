@@ -95,24 +95,24 @@ export class BatchesService {
    *  - save pending_sync to DB
    */
   async createBatchOnchain(dataDto: CreateBatchDto, user: User) {
-    const { productId, fromEventId, toEventId, events } = dataDto
+    const { product_id, from_event_id, to_event_id, events } = dataDto
 
-    if (fromEventId >= toEventId) {
+    if (from_event_id >= to_event_id) {
       throw new BadRequestException(
-        'Invalid event range: fromEventId must be < toEventId',
+        'Invalid event range: from_event_id must be < toEventId',
       )
     }
     if (!events?.length) throw new BadRequestException('events cannot be empty')
 
     const product = await this.productRepo.findOne({
-      where: { id: productId },
+      where: { id: product_id },
       relations: ['current_owner'],
     })
     if (!product) throw new NotFoundException('Product not found')
 
     const productLeaf = this.buildProductLeaf(product)
     const rangeEvents = events.filter(
-      (e) => e.id >= fromEventId && e.id <= toEventId,
+      (e) => e.id >= from_event_id && e.id <= to_event_id,
     )
     if (!rangeEvents.length)
       throw new BadRequestException('No events in given range')
@@ -133,8 +133,8 @@ export class BatchesService {
     try {
       tx = await this.contract.commitWithBatchCode(
         merkleRoot,
-        fromEventId,
-        toEventId,
+        from_event_id,
+        to_event_id,
         batchCode,
       )
       await tx.wait()
@@ -151,12 +151,12 @@ export class BatchesService {
       committer: this.wallet.address,
       status: 'pending_sync',
       metadata: {
-        merkleRoot,
-        fromEventId,
-        toEventId,
+        merkle_root: merkleRoot,
+        from_event_id,
+        to_event_id,
         tx_hash: tx.hash,
-        productLeaf,
-        eventCount: eventLeaves.length,
+        product_leaf: productLeaf,
+        event_count: eventLeaves.length,
         createdBy: user.wallet_address,
       },
     })

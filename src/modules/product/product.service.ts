@@ -1,9 +1,15 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common'
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { Product } from './entities/product.entity'
 import { Repository } from 'typeorm'
 import { User } from '../user/entities/user.entity'
 import { CreateProductDto } from './dto/create-product.dto'
+import { Organizations } from '../organizations/entities/organizations.entity'
 
 @Injectable()
 export class ProductService {
@@ -11,61 +17,74 @@ export class ProductService {
   constructor(
     @InjectRepository(Product)
     private readonly productRepo: Repository<Product>,
+
+    @InjectRepository(Organizations)
+    private readonly orgRepo: Repository<Organizations>,
   ) {}
 
   async createProduct(dto: CreateProductDto, user: User) {
     try {
-      const exists = await this.productRepo.findOne({
-        where: { name: dto.product_name, current_owner: { id: user.id } },
-      })
-
-      if (exists) {
-        throw new BadRequestException('Product already exists for this owner')
-      }
-
-      const manufactureDate = new Date(dto.manufacture_date)
-      const expiryDate = new Date(dto.expiry_date)
-
-      if (expiryDate <= manufactureDate) {
+      let organization: Organizations | null = null
+      if (dto.organization_id) {
+        organization = await this.orgRepo.findOne({
+          where: { id: dto.organization_id },
+        })
+        if (!organization) {
+          throw new NotFoundException('Organization not found')
+        }
+      } else if (user.organization) {
+        organization = user.organization
+      } else {
         throw new BadRequestException(
-          'Expiry date must be after manufacture date',
+          'User must belong to an organization or specify one.',
         )
       }
 
-      // Handle image upload (if base64)
+      const exists = await this.productRepo.findOne({
+        where: {
+          name: dto.name,
+          organization: { id: organization.id },
+        },
+      })
+      if (exists) {
+        throw new BadRequestException(
+          'Product already exists in this organization',
+        )
+      }
+
       let imageUrl: string | null = null
-      if (dto.image) {
-        // If you have a separate upload service, use it here
-        // For now, we'll store the base64 directly (not recommended for production)
-        // imageUrl = await this.uploadService.uploadBase64(dto.image);
-        imageUrl = dto.image
+      if (dto.image_url) {
+        imageUrl = dto.image_url
       }
 
       const product = this.productRepo.create({
-        name: dto.product_name,
-        origin: dto.origin,
-        category_id: dto.category_id,
-        producer_name: dto.producer_name,
-        manufacture_date: manufactureDate,
-        expiry_date: expiryDate,
+        name: dto.name,
         description: dto.description,
+        category: dto.category,
         image_url: imageUrl,
-        certifications: dto.certifications,
         storage_conditions: dto.storage_conditions,
         nutritional_info: dto.nutritional_info,
+        metadata_uri: dto.metadata_uri,
+        metadata_hash: dto.metadata_hash,
+        onchain_product_id: dto.onchain_product_id ?? null,
+        organization,
         current_owner: user,
-        owner_wallet: user.wallet_address,
       })
 
       const savedProduct = await this.productRepo.save(product)
 
-      this.logger.log(`Product created successfully: ${savedProduct.id}`)
-
+      this.logger.log(`✅ Product created successfully: ${savedProduct.id}`)
       return savedProduct
     } catch (error) {
-      this.logger.error(`Error creating product: ${error.message}`, error.stack)
+      this.logger.error(
+        `❌ Error creating product: ${error.message}`,
+        error.stack,
+      )
 
-      if (error instanceof BadRequestException) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException
+      ) {
         throw error
       }
 
@@ -75,9 +94,25 @@ export class ProductService {
 
   async listByOwner(user: User) {
     return this.productRepo.find({
-      where: { owner_wallet: user.wallet_address },
+      where: { current_owner: user },
       order: { created_at: 'DESC' },
       relations: ['current_owner'],
     })
+  }
+
+  async findAll(): Promise<Product[]> {
+    return this.productRepo.find({
+      relations: ['organization'],
+      order: { created_at: 'DESC' },
+    })
+  }
+
+  async findOne(id: string): Promise<Product> {
+    const product = await this.productRepo.findOne({
+      where: { id },
+      relations: ['organization', 'batches'],
+    })
+    if (!product) throw new NotFoundException('Product not found')
+    return product
   }
 }

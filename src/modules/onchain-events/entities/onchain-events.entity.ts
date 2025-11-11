@@ -1,10 +1,7 @@
-import { BatchEntity } from '@app/modules/batches/entities/batches.entity'
 import {
   Entity,
   PrimaryGeneratedColumn,
   Column,
-  ManyToOne,
-  JoinColumn,
   CreateDateColumn,
   Index,
 } from 'typeorm'
@@ -31,15 +28,15 @@ export class OnchainEventEntity {
   @Column({ type: 'varchar', length: 66 })
   contract_address: string
 
-  @ManyToOne(() => BatchEntity, (batch) => batch.onchain_events, {
-    nullable: true,
-    onDelete: 'SET NULL',
-  })
-  @JoinColumn({ name: 'batch_id' })
-  batch: BatchEntity | null
+  @Column({ type: 'timestamp', nullable: true })
+  block_timestamp: Date
 
-  @Column({ type: 'uuid', nullable: true })
-  batch_id: string | null
+  @Column({
+    type: 'enum',
+    enum: ['PENDING', 'CONFIRMED', 'FAILED'],
+    default: 'CONFIRMED',
+  })
+  status: string
 
   @CreateDateColumn()
   created_at: Date

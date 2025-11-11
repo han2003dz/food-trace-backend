@@ -1,72 +1,79 @@
+import { Organizations } from '@app/modules/organizations/entities/organizations.entity'
+import { Product } from '@app/modules/product/entities/product.entity'
 import {
   Entity,
   PrimaryGeneratedColumn,
   Column,
   ManyToOne,
   OneToMany,
-  JoinColumn,
+  OneToOne,
   CreateDateColumn,
   UpdateDateColumn,
-  Index,
+  JoinColumn,
 } from 'typeorm'
-import { User } from '../../user/entities/user.entity'
-import { Product } from '../../product/entities/product.entity'
-import { OnchainEventEntity } from '@app/modules/onchain-events/entities/onchain-events.entity'
+import { BatchEventEntity } from './batch-event.entity'
+import { BatchCodeEntity } from './batch-code.entity'
+import { MerkleRootEntity } from '@app/modules/merkle-root/entities/merkle-root.entity'
+import { BatchCertificationEntity } from '@app/modules/certification/entities/batch-certification.entity'
 
 @Entity('batches')
 export class BatchEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string
 
-  @Index('idx_batch_code_unique', { unique: true })
-  @Column({ type: 'varchar', length: 255 })
-  batch_code: string
-
-  @Index('idx_batch_onchain_id')
-  @Column({ type: 'bigint', nullable: true })
-  onchain_batch_id: number | null
-
-  @Column({ type: 'varchar', length: 66, nullable: true })
-  batch_code_hash: string | null
-
-  @Index('idx_batch_committer')
-  @Column({ type: 'varchar', length: 42, nullable: true })
-  committer: string | null
-
-  @ManyToOne(() => Product, { nullable: true, onDelete: 'SET NULL' })
+  @ManyToOne(() => Product, (p) => p.batches)
   @JoinColumn({ name: 'product_id' })
-  product: Product | null
+  product: Product
 
-  @Column({ type: 'uuid', nullable: true })
-  product_id: string | null
+  @ManyToOne(() => Organizations)
+  @JoinColumn({ name: 'creator_org_id' })
+  creator_org: Organizations
 
-  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
-  @JoinColumn({ name: 'created_by_id' })
-  created_by: User | null
+  @ManyToOne(() => Organizations)
+  @JoinColumn({ name: 'current_owner_id' })
+  current_owner: Organizations
 
-  @Column({ type: 'uuid', nullable: true })
-  owner_id: string | null
+  @Column({ type: 'bigint', nullable: true })
+  onchain_batch_id: number
 
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  origin: string | null
+  @Column()
+  initial_data_hash: string
 
-  @Index('idx_batch_status')
+  @Column({ nullable: true })
+  metadata_uri: string
+
   @Column({
-    type: 'varchar',
-    length: 50,
-    default: 'pending',
+    type: 'enum',
+    enum: [
+      'HARVESTED',
+      'PROCESSED',
+      'IN_TRANSIT',
+      'WAREHOUSE',
+      'SOLD',
+      'RECALLED',
+    ],
+    default: 'HARVESTED',
   })
   status: string
 
-  @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, any> | null
+  @Column({ default: false })
+  closed: boolean
+
+  @OneToMany(() => BatchEventEntity, (event) => event.batch)
+  events: BatchEventEntity[]
+
+  @OneToOne(() => BatchCodeEntity, (code) => code.batch)
+  code: BatchCodeEntity
+
+  @OneToOne(() => MerkleRootEntity, (m) => m.batch)
+  merkle_root: MerkleRootEntity
+
+  @OneToMany(() => BatchCertificationEntity, (bc) => bc.batch)
+  certifications: BatchCertificationEntity[]
 
   @CreateDateColumn()
   created_at: Date
 
   @UpdateDateColumn()
   updated_at: Date
-
-  @OneToMany(() => OnchainEventEntity, (event) => event.batch)
-  onchain_events: OnchainEventEntity[]
 }

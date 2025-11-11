@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Req } from '@nestjs/common'
+import { Body, Controller, Get, Param, Post, Req } from '@nestjs/common'
 import { ProductService } from './product.service'
 import { ApiOperation } from '@nestjs/swagger'
 import { CreateProductDto } from './dto/create-product.dto'
@@ -8,6 +8,11 @@ import { Auth } from '@app/decorators/auth.decorator'
 @Controller('products')
 export class ProductController {
   constructor(private readonly productService: ProductService) {}
+
+  @Get()
+  async findAll() {
+    return this.productService.findAll()
+  }
 
   @Post('/create')
   @Auth()
@@ -20,5 +25,10 @@ export class ProductController {
   @ApiOperation({ summary: 'List my products' })
   listByOwner(@Req() req: Request) {
     return this.productService.listByOwner(req.user)
+  }
+
+  @Get(':id')
+  async findOne(@Param('id') id: string) {
+    return this.productService.findOne(id)
   }
 }

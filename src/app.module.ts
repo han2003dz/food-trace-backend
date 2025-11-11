@@ -12,10 +12,12 @@ import { LoggerModule } from './modules/logger/logger.module'
 import { UserModule } from './modules/user/user.module'
 import { AdminModule } from './modules/admin/admin.module'
 import { ProductModule } from './modules/product/product.module'
-import { ProductLogModule } from './modules/product-log/product-log.module'
 import { DatabaseModule } from './database/database.module'
 import { BatchesModule } from './modules/batches/batches.module'
 import { PublicTraceModule } from './modules/public-trace/public-trace.module'
+import { MerkleRootModule } from './modules/merkle-root/merkle-root.module'
+import { QrScanLogModule } from './modules/qr-scan-logs/qr-scan-logs.module'
+import { OrganizationsModule } from './modules/organizations/organizations.module'
 
 @Module({
   imports: [
@@ -42,10 +44,12 @@ import { PublicTraceModule } from './modules/public-trace/public-trace.module'
     DatabaseModule,
     AdminModule,
     ProductModule,
-    ProductLogModule,
     BatchesModule,
     ProductModule,
     PublicTraceModule,
+    MerkleRootModule,
+    QrScanLogModule,
+    OrganizationsModule,
   ],
   controllers: [],
   providers: [

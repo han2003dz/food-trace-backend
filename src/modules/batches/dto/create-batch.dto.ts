@@ -41,17 +41,17 @@ export class CreateBatchDto {
     description: 'UUID of the product this batch belongs to',
   })
   @IsUUID()
-  productId: string
+  product_id: string
 
   @ApiProperty({ example: 1, description: 'Starting event ID (inclusive)' })
   @IsInt()
   @Min(0)
-  fromEventId: number
+  from_event_id: number
 
   @ApiProperty({ example: 10, description: 'Ending event ID (inclusive)' })
   @IsInt()
   @Min(1)
-  toEventId: number
+  to_event_id: number
 
   @ApiProperty({
     type: [EventDto],
