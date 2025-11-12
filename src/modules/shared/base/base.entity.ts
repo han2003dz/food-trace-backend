@@ -9,11 +9,11 @@ import {
 export class BaseTimeEntity {
   @Expose({ name: 'created_at' })
   @CreateDateColumn({ name: 'created_at', default: () => 'CURRENT_TIMESTAMP' })
-  createdAt: Date
+  created_at: Date
 
   @Expose({ name: 'updated_at' })
   @UpdateDateColumn({ name: 'updated_at', default: () => 'CURRENT_TIMESTAMP' })
-  updatedAt: Date
+  updated_at: Date
 }
 
 export class BaseIncrementEntity extends BaseTimeEntity {

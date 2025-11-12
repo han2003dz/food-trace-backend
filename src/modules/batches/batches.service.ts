@@ -11,12 +11,12 @@ import { ethers } from 'ethers'
 
 import { BatchEntity } from './entities/batches.entity'
 import { Product } from '../product/entities/product.entity'
-import { User } from '../user/entities/user.entity'
+import { Organizations } from '../organizations/entities/organizations.entity'
+import { CreateBatchDto } from './dto/create-batch.dto'
+
 import foodTraceArtifact from '../crawl/contracts/TraceabilityMerkleRegistry.json'
-import { CreateBatchDto, EventDto } from './dto/create-batch.dto'
-import { leafHash } from '@app/utils/hash'
-import { buildMerkleRoot } from '@app/utils/merkle'
 import { generateBatchCode } from '@app/utils/generate'
+import { BatchEventEntity } from './entities/batch-event.entity'
 
 @Injectable()
 export class BatchesService {
@@ -27,8 +27,12 @@ export class BatchesService {
   constructor(
     @InjectRepository(BatchEntity)
     private readonly batchRepo: Repository<BatchEntity>,
+    @InjectRepository(BatchEventEntity)
+    private readonly batchEventRepo: Repository<BatchEventEntity>,
     @InjectRepository(Product)
     private readonly productRepo: Repository<Product>,
+    @InjectRepository(Organizations)
+    private readonly orgRepo: Repository<Organizations>,
     private readonly configService: ConfigService,
   ) {
     const rpc = this.configService.getOrThrow<string>('RPC_URL')
@@ -44,155 +48,214 @@ export class BatchesService {
       this.wallet,
     )
 
-    this.logger.log(
-      `🔗 Initialized with committer wallet: ${this.wallet.address}`,
+    this.logger.log(`🔗 Connected to contract: ${contractAddress}`)
+    this.logger.log(`👤 Using committer wallet: ${this.wallet.address}`)
+  }
+
+  /**
+   * Create a new batch and sync with blockchain.
+   * Steps:
+   *  1️⃣ Validate product & organization
+   *  2️⃣ Generate batch code
+   *  3️⃣ Compute product leaf hash
+   *  4️⃣ Call createBatch() on-chain
+   *  5️⃣ Save local DB record with onchainBatchId & txHash
+   */
+  async createBatchOnchain(dataDto: CreateBatchDto) {
+    const { product_id, creator_org_id, initial_data_hash, metadata_uri } =
+      dataDto
+
+    // 🧩 Validate product
+    const product = await this.productRepo.findOne({
+      where: { id: product_id },
+      relations: ['organization'],
+    })
+    if (!product) throw new NotFoundException('Product not found')
+
+    // 🧩 Validate organization (creator)
+    const creatorOrg = await this.orgRepo.findOne({
+      where: { id: creator_org_id },
+    })
+    if (!creatorOrg)
+      throw new NotFoundException('Creator organization not found')
+
+    // ✅ Auto-generate batch code
+    const seq =
+      (await this.batchRepo.count({ where: { product: { id: product.id } } })) +
+      1
+    const batchCode = generateBatchCode(
+      product.name,
+      creatorOrg.name || 'ORG',
+      seq,
     )
-  }
 
-  /** Create or update an existing batch */
-  async upsert(data: Partial<BatchEntity>): Promise<BatchEntity> {
-    const existing = await this.batchRepo.findOne({
-      where: { batch_code: data.batch_code },
-    })
+    // ✅ Check contract paused state
+    const paused = await this.contract.paused().catch(() => false)
+    if (paused) throw new BadRequestException('Contract is paused')
 
-    if (existing) {
-      Object.assign(existing, data)
-      this.logger.debug(`Updated batch ${data.batch_code}`)
-      return this.batchRepo.save(existing)
+    // ✅ Send on-chain transaction
+    let tx, onchainBatchId
+    try {
+      tx = await this.contract.createBatch(
+        product.onchain_product_id,
+        initial_data_hash,
+        metadata_uri || '',
+      )
+      this.logger.log(`⛓️ Sending createBatch TX: ${tx.hash}`)
+
+      const receipt = await tx.wait()
+
+      const event = receipt.logs
+        .map((log) => {
+          try {
+            return this.contract.interface.parseLog(log)
+          } catch {
+            return null
+          }
+        })
+        .find((e) => e && e.name === 'BatchCreated')
+
+      onchainBatchId = event?.args?.batchId?.toString() ?? null
+      if (!onchainBatchId)
+        this.logger.warn('⚠️ BatchCreated event not found in receipt')
+    } catch (err: any) {
+      this.logger.error(`❌ On-chain batch creation failed: ${err.message}`)
+      throw new BadRequestException(
+        `Blockchain transaction failed: ${err.reason || err.message}`,
+      )
     }
 
-    const newBatch = this.batchRepo.create(data)
-    this.logger.debug(`Created new batch ${data.batch_code}`)
-    return this.batchRepo.save(newBatch)
+    // ✅ Save in local DB
+    const batch = this.batchRepo.create({
+      product,
+      creator_org: creatorOrg,
+      current_owner: creatorOrg,
+      onchain_batch_id: onchainBatchId ? Number(onchainBatchId) : null,
+      initial_data_hash,
+      metadata_uri,
+      status: 'HARVESTED',
+      closed: false,
+    })
+
+    const saved = await this.batchRepo.save(batch)
+
+    this.logger.log(
+      `✅ Batch created successfully: ${batchCode}, onchainId=${onchainBatchId}`,
+    )
+
+    return {
+      id: saved.id,
+      batch_code: batchCode,
+      onchain_batch_id: onchainBatchId,
+      tx_hash: tx.hash,
+      status: saved.status,
+    }
   }
 
-  async updateByOnchainId(onchainId: number, updates: Partial<BatchEntity>) {
-    const batch = await this.batchRepo.findOne({
-      where: { onchain_batch_id: onchainId },
-    })
-    if (!batch) {
-      this.logger.warn(`Batch with onchain ID ${onchainId} not found`)
-      return null
+  /** 🧾 Record a new trace event for a batch */
+  async recordTraceEvent(
+    onchainBatchId: number,
+    eventType: number,
+    eventHash: string,
+  ) {
+    try {
+      const tx = await this.contract.recordTraceEvent(
+        onchainBatchId,
+        eventType,
+        eventHash,
+      )
+      await tx.wait()
+      this.logger.log(`✅ Trace event recorded for batch ${onchainBatchId}`)
+      return { txHash: tx.hash }
+    } catch (err: any) {
+      throw new BadRequestException(
+        `Failed to record trace event: ${err.reason || err.message}`,
+      )
     }
+  }
 
-    Object.assign(batch, updates)
-    return this.batchRepo.save(batch)
+  /** 🔐 Commit Merkle root for batch audit */
+  async commitMerkleRoot(onchainBatchId: number, root: string) {
+    try {
+      const tx = await this.contract.commitBatchMerkleRoot(onchainBatchId, root)
+      await tx.wait()
+      this.logger.log(`✅ Merkle root committed for batch ${onchainBatchId}`)
+      return { txHash: tx.hash }
+    } catch (err: any) {
+      throw new BadRequestException(
+        `Failed to commit Merkle root: ${err.reason || err.message}`,
+      )
+    }
   }
 
   async findAll() {
     return this.batchRepo.find({
+      relations: ['product', 'creator_org', 'current_owner'],
       order: { created_at: 'DESC' },
+    })
+  }
+
+  async findByProduct(productId: string) {
+    return this.batchRepo.find({
+      where: { product: { id: productId } },
+      relations: ['product', 'creator_org', 'current_owner'],
+      order: { created_at: 'DESC' },
+    })
+  }
+
+  async updateByOnchainId(
+    onchainId: number,
+    updates: Partial<BatchEntity>,
+  ): Promise<BatchEntity | null> {
+    const batch = await this.batchRepo.findOne({
+      where: { onchain_batch_id: onchainId },
       relations: ['product'],
     })
-  }
 
-  /**
-   * Create a batch:
-   *  - validate product, events
-   *  - hash leaves
-   *  - compute Merkle root
-   *  - commit to on-chain
-   *  - save pending_sync to DB
-   */
-  async createBatchOnchain(dataDto: CreateBatchDto, user: User) {
-    const { product_id, from_event_id, to_event_id, events } = dataDto
-
-    if (from_event_id >= to_event_id) {
-      throw new BadRequestException(
-        'Invalid event range: from_event_id must be < toEventId',
-      )
-    }
-    if (!events?.length) throw new BadRequestException('events cannot be empty')
-
-    const product = await this.productRepo.findOne({
-      where: { id: product_id },
-      relations: ['current_owner'],
-    })
-    if (!product) throw new NotFoundException('Product not found')
-
-    const productLeaf = this.buildProductLeaf(product)
-    const rangeEvents = events.filter(
-      (e) => e.id >= from_event_id && e.id <= to_event_id,
-    )
-    if (!rangeEvents.length)
-      throw new BadRequestException('No events in given range')
-
-    const eventLeaves = this.buildEventLeaves(rangeEvents)
-
-    const merkleRoot = buildMerkleRoot([productLeaf, ...eventLeaves])
-
-    const seq =
-      (await this.batchRepo.count({ where: { product: { id: product.id } } })) +
-      1
-    const batchCode = generateBatchCode(product.name, product.origin ?? '', seq)
-
-    const paused = await this.contract.paused().catch(() => false)
-    if (paused) throw new BadRequestException('Contract currently paused')
-
-    let tx
-    try {
-      tx = await this.contract.commitWithBatchCode(
-        merkleRoot,
-        from_event_id,
-        to_event_id,
-        batchCode,
-      )
-      await tx.wait()
-    } catch (err: any) {
-      this.logger.error(`❌ Commit transaction failed: ${err.message}`)
-      throw new BadRequestException(
-        `Blockchain transaction reverted: ${err.reason || err.message}`,
-      )
+    if (!batch) {
+      this.logger.warn(`⚠️ Batch with onchainId ${onchainId} not found.`)
+      return null
     }
 
-    const entity = this.batchRepo.create({
-      batch_code: batchCode,
-      product,
-      committer: this.wallet.address,
-      status: 'pending_sync',
-      metadata: {
-        merkle_root: merkleRoot,
-        from_event_id,
-        to_event_id,
-        tx_hash: tx.hash,
-        product_leaf: productLeaf,
-        event_count: eventLeaves.length,
-        createdBy: user.wallet_address,
-      },
+    Object.assign(batch, updates)
+    const saved = await this.batchRepo.save(batch)
+
+    this.logger.log(`✅ Updated batch (onchainId=${onchainId})`)
+    return saved
+  }
+
+  async appendTraceEvent(
+    onchainBatchId: number,
+    eventData: {
+      event_type: string
+      actor_wallet: string
+      data_hash: string
+      tx_hash: string
+      block_number: number
+    },
+  ) {
+    const batch = await this.batchRepo.findOne({
+      where: { onchain_batch_id: onchainBatchId },
     })
-    const saved = await this.batchRepo.save(entity)
 
-    this.logger.log(`✅ Created batch ${batchCode}, tx=${tx.hash}`)
-
-    return {
-      id: saved.id,
-      batch_code: saved.batch_code,
-      status: saved.status,
-      tx_hash: tx.hash,
-      merkleRoot,
+    if (!batch) {
+      this.logger.warn(
+        `⚠️ Cannot append event — batch ${onchainBatchId} not found`,
+      )
+      return null
     }
-  }
 
-  private buildProductLeaf(product: Product) {
-    return leafHash({
-      product_id: product.id,
-      name: product.name,
-      origin: product.origin,
-      manufacture_date:
-        product.manufacture_date?.toISOString?.() ?? product.manufacture_date,
-      expiry_date: product.expiry_date?.toISOString?.() ?? product.expiry_date,
-      owner_wallet:
-        product.current_owner?.wallet_address ?? product.owner_wallet,
+    const newEvent = this.batchEventRepo.create({
+      batch,
+      event_type: eventData.event_type,
+      data_hash: eventData.data_hash,
+      tx_hash: eventData.tx_hash,
+      block_number: eventData.block_number,
+      actor_org: batch.creator_org || null,
     })
-  }
 
-  private buildEventLeaves(events: EventDto[]) {
-    return events.map((e) =>
-      leafHash({
-        id: e.id,
-        name: e.name,
-        data: e.data ?? null,
-      }),
-    )
+    await this.batchEventRepo.save(newEvent)
+    this.logger.log(`📍 Added trace event to batch ${onchainBatchId}`)
+    return newEvent
   }
 }

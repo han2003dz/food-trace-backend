@@ -14,7 +14,6 @@ import { AdminModule } from './modules/admin/admin.module'
 import { ProductModule } from './modules/product/product.module'
 import { DatabaseModule } from './database/database.module'
 import { BatchesModule } from './modules/batches/batches.module'
-import { PublicTraceModule } from './modules/public-trace/public-trace.module'
 import { MerkleRootModule } from './modules/merkle-root/merkle-root.module'
 import { QrScanLogModule } from './modules/qr-scan-logs/qr-scan-logs.module'
 import { OrganizationsModule } from './modules/organizations/organizations.module'
@@ -46,7 +45,6 @@ import { OrganizationsModule } from './modules/organizations/organizations.modul
     ProductModule,
     BatchesModule,
     ProductModule,
-    PublicTraceModule,
     MerkleRootModule,
     QrScanLogModule,
     OrganizationsModule,

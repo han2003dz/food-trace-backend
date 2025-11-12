@@ -11,7 +11,7 @@ import { RolesGuard } from './../../guards/auth/roles.guard'
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
   @Post()
-  @RoleAccess(ROLE.SUPER_ADMIN)
+  @RoleAccess(ROLE.ADMIN)
   @UseGuards(RolesGuard)
   async createAdmin(@Body() dto: CreateAdminDto) {
     return this.adminService.createAdmin(dto)

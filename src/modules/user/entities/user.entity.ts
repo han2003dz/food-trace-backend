@@ -1,12 +1,10 @@
 import { Expose } from 'class-transformer'
 import {
   Column,
-  CreateDateColumn,
   Entity,
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
-  UpdateDateColumn,
 } from 'typeorm'
 import { BaseUuidEntity } from './../../shared/base/base.entity'
 import { Organizations } from '@app/modules/organizations/entities/organizations.entity'
@@ -29,8 +27,8 @@ export class User extends BaseUuidEntity {
 
   @Column({
     type: 'enum',
-    enum: ['ADMIN', 'MANAGER', 'MEMBER'],
-    default: 'MEMBER',
+    enum: ['PRODUCER', 'RETAILER', 'LOGISTICS', 'AUDITOR', 'ADMIN', 'CONSUMER'],
+    default: 'CONSUMER',
   })
   role: string
 
@@ -41,10 +39,4 @@ export class User extends BaseUuidEntity {
   @ManyToOne(() => Organizations, (org) => org.users)
   @JoinColumn({ name: 'organization_id' })
   organization: Organizations
-
-  @CreateDateColumn()
-  created_at: Date
-
-  @UpdateDateColumn()
-  updated_at: Date
 }

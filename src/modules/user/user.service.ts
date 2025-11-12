@@ -36,7 +36,7 @@ export class UserService {
       user = this.userRepository.create({
         wallet_address: wallet_address,
         username,
-        role: 0,
+        role: 'USER',
       })
       await this.userRepository.save(user)
     }

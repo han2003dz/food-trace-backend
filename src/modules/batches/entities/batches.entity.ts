@@ -59,6 +59,9 @@ export class BatchEntity {
   @Column({ default: false })
   closed: boolean
 
+  @Column({ type: 'jsonb', nullable: true })
+  metadata?: Record<string, any>
+
   @OneToMany(() => BatchEventEntity, (event) => event.batch)
   events: BatchEventEntity[]
 

@@ -18,7 +18,7 @@ async function seedSuperAdmin(client: Client) {
   }
   await client.query(
     `INSERT INTO users (wallet_address, role, created_at, updated_at) VALUES ($1, $2, now(), now())`,
-    [wallet_address, ROLE.SUPER_ADMIN],
+    [wallet_address, ROLE.ADMIN],
   )
   console.log('Super admin seeded.')
 }

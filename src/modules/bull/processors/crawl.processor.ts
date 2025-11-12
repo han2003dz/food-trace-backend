@@ -1,23 +1,27 @@
 import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq'
 import { Logger } from '@nestjs/common'
 import { Job } from 'bullmq'
+
 import { Web3Service } from './../../crawl/services/web3.service'
 import { EventParserService } from '@app/modules/crawl/services/event-parser.service'
 import { OnchainEventService } from '@app/modules/onchain-events/onchain-events.service'
 import { ParsedEvent } from '@app/modules/crawl/types/parsed-event.type'
 import { BatchesService } from '@app/modules/batches/batches.service'
+import { ProductService } from '@app/modules/product/product.service'
 
 @Processor('crawl')
 export class CrawlProcessor extends WorkerHost {
+  private readonly logger = new Logger(CrawlProcessor.name)
+
   constructor(
     private readonly web3Service: Web3Service,
     private readonly parser: EventParserService,
     private readonly onchainEventService: OnchainEventService,
     private readonly batchesService: BatchesService,
+    private readonly productService: ProductService,
   ) {
     super()
   }
-  private readonly logger = new Logger(CrawlProcessor.name)
 
   async process(job: Job<any, any, string>): Promise<void> {
     const { fromBlockNumber, toBlockNumber, event } = job.data
@@ -27,6 +31,7 @@ export class CrawlProcessor extends WorkerHost {
       toBlockNumber,
       event,
     )
+
     if (!logs.length) {
       this.logger.warn(
         `[${event}] No logs between ${fromBlockNumber} → ${toBlockNumber}`,
@@ -46,103 +51,163 @@ export class CrawlProcessor extends WorkerHost {
     }
 
     for (const event of parsedEvents) {
-      console.log('event', event)
       try {
         switch (event.event_name) {
-          case 'BatchCodeBound':
-            await this.handleBatchCodeBound(event)
+          case 'ProductCreated':
+            await this.handleProductCreated(event)
             break
 
-          case 'RootCommitted':
-            await this.handleRootCommitted(event)
+          case 'BatchCreated':
+            await this.handleBatchCreated(event)
             break
 
-          case 'CommitterChanged':
-            await this.handleCommitterChanged(event)
+          case 'TraceEventRecorded':
+            await this.handleTraceEventRecorded(event)
+            break
+
+          case 'BatchMerkleRootCommitted':
+            await this.handleBatchMerkleRootCommitted(event)
             break
 
           default:
             this.logger.debug(`Unhandled event type: ${event.event_name}`)
             break
         }
+
         await this.onchainEventService.saveEvents([event])
       } catch (error) {
         this.logger.error(
-          `Error processing event ${event.event_name}: ${error.message}`,
+          `Error processing ${event.event_name}: ${error.message}`,
           error.stack,
         )
       }
     }
   }
 
-  private async handleBatchCodeBound(event: ParsedEvent) {
-    const { args, tx_hash, block_number } = event
+  /**
+   * 🔹 ProductCreated(productId, creator, name, metadataURI)
+   */
+  private async handleProductCreated(event: ParsedEvent) {
+    const { args, tx_hash } = event
+    const productId = Number(args?.productId)
+    const name = args?.name
+    const creator = args?.creator
+    const metadataURI = args?.metadataURI
 
-    const batchCode = args?.batchCode
-    const batchId = Number(args?.batchId)
-    const batchCodeHash = args?.batchCodeHash
-
-    if (!batchCode) {
-      this.logger.warn(`Missing batchCode in event ${tx_hash}`)
+    if (!productId || !name) {
+      this.logger.warn(`Invalid ProductCreated event in tx ${tx_hash}`)
       return
     }
 
-    await this.batchesService.upsert({
-      batch_code: batchCode,
-      batch_code_hash: batchCodeHash,
-      onchain_batch_id: batchId,
-      committer: event.args.committer || null,
-      status: 'verified',
-      metadata: {
-        tx_hash,
-        block_number,
-      },
+    this.logger.log(
+      `🪴 ProductCreated → productId=${productId}, name=${name}, creator=${creator}`,
+    )
+
+    // ✅ Cập nhật vào DB nếu cần (chưa có)
+    await this.productService.updateOnchainProduct?.(productId, {
+      onchain_product_id: productId,
+      metadata_uri: metadataURI,
     })
   }
 
-  private async handleRootCommitted(event: ParsedEvent) {
+  /**
+   * 🔹 BatchCreated(batchId, productId, creator, metadataURI, dataHash)
+   */
+  private async handleBatchCreated(event: ParsedEvent) {
+    const { args, tx_hash, block_number } = event
+    const batchId = Number(args?.batchId)
+    const productId = Number(args?.productId)
+    const creator = args?.creator
+    const metadataURI = args?.metadataURI
+    const dataHash = args?.dataHash
+
+    if (!batchId || !productId) {
+      this.logger.warn(`Invalid BatchCreated event in tx ${tx_hash}`)
+      return
+    }
+
+    this.logger.log(
+      `📦 BatchCreated → batchId=${batchId}, productId=${productId}, creator=${creator}`,
+    )
+
+    // ✅ Lưu/Update DB
+    await this.batchesService.updateByOnchainId(batchId, {
+      onchain_batch_id: batchId,
+      initial_data_hash: dataHash,
+      metadata_uri: metadataURI,
+      status: 'HARVESTED',
+      metadata: { tx_hash, block_number, creator },
+    })
+  }
+
+  /**
+   * 🔹 TraceEventRecorded(batchId, eventType, dataHash, actor, timestamp)
+   */
+  private async handleTraceEventRecorded(event: ParsedEvent) {
+    const { args, tx_hash, block_number } = event
+    const batchId = Number(args?.batchId)
+    const eventType = Number(args?.eventType)
+    const actor = args?.actor
+    const dataHash = args?.dataHash
+
+    if (!batchId) {
+      this.logger.warn(`TraceEventRecorded missing batchId (tx: ${tx_hash})`)
+      return
+    }
+
+    this.logger.log(
+      `📍 TraceEventRecorded → batchId=${batchId}, type=${eventType}, actor=${actor}`,
+    )
+
+    // ✅ Optionally: lưu trace event riêng trong bảng batch_event
+    await this.batchesService.appendTraceEvent?.(batchId, {
+      event_type: eventType,
+      actor,
+      data_hash: dataHash,
+      tx_hash,
+      block_number,
+    })
+  }
+
+  /**
+   * 🔹 BatchMerkleRootCommitted(batchId, root, committer, timestamp)
+   */
+  private async handleBatchMerkleRootCommitted(event: ParsedEvent) {
     const { args, tx_hash } = event
-    const batchId = args.batchId.toString()
-    const root = args.merkleRoot
+    const batchId = Number(args?.batchId)
+    const root = args?.root
 
     if (!batchId || !root) {
-      this.logger.warn(`RootCommitted missing batchId or root (tx: ${tx_hash})`)
+      this.logger.warn(
+        `Invalid BatchMerkleRootCommitted event (tx: ${tx_hash})`,
+      )
       return
     }
 
-    await this.batchesService.updateByOnchainId(Number(batchId), {
-      metadata: { merkleRoot: root, tx_hash },
+    this.logger.log(
+      `🔐 BatchMerkleRootCommitted → batchId=${batchId}, root=${root}`,
+    )
+
+    await this.batchesService.updateByOnchainId(batchId, {
+      metadata: { merkle_root: root, tx_hash },
     })
-
-    this.logger.log(` Updated batch ${batchId} with new root`)
   }
 
-  private async handleCommitterChanged(event: ParsedEvent) {
-    const { args } = event
-    const oldCommitter = args.oldCommitter
-    const newCommitter = args.newCommitter
-
-    this.logger.log(`Committer changed: ${oldCommitter} → ${newCommitter}`)
-  }
-
+  // Worker events
   @OnWorkerEvent('active')
   onActive(job: Job<any, any, string>) {
     this.logger.debug(
-      `Processing job ${job.id} of type ${job.name} with data ${JSON.stringify(job.data)}`,
+      `Processing job ${job.id} (${job.name}) with data ${JSON.stringify(job.data)}`,
     )
   }
 
   @OnWorkerEvent('completed')
   onCompleted(job: Job<any, any, string>) {
-    this.logger.debug(
-      `Job ${job.id} of type ${job.name} completed successfully with data ${JSON.stringify(job.data)}`,
-    )
+    this.logger.debug(`Job ${job.id} (${job.name}) completed successfully`)
   }
 
   @OnWorkerEvent('failed')
   onFailed(job: Job<any, any, string>) {
-    this.logger.error(
-      `Job ${job.id} of type ${job.name} failed with data ${JSON.stringify(job.data)}`,
-    )
+    this.logger.error(`Job ${job.id} (${job.name}) failed`, job.data)
   }
 }
