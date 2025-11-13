@@ -17,6 +17,8 @@ import { CreateBatchDto } from './dto/create-batch.dto'
 import foodTraceArtifact from '../crawl/contracts/TraceabilityMerkleRegistry.json'
 import { generateBatchCode } from '@app/utils/generate'
 import { BatchEventEntity } from './entities/batch-event.entity'
+import { User } from '../user/entities/user.entity'
+import { BatchCodeEntity } from './entities/batch-code.entity'
 
 @Injectable()
 export class BatchesService {
@@ -29,6 +31,8 @@ export class BatchesService {
     private readonly batchRepo: Repository<BatchEntity>,
     @InjectRepository(BatchEventEntity)
     private readonly batchEventRepo: Repository<BatchEventEntity>,
+    @InjectRepository(BatchCodeEntity)
+    private readonly batchCodeRepo: Repository<BatchCodeEntity>,
     @InjectRepository(Product)
     private readonly productRepo: Repository<Product>,
     @InjectRepository(Organizations)
@@ -61,94 +65,105 @@ export class BatchesService {
    *  4️⃣ Call createBatch() on-chain
    *  5️⃣ Save local DB record with onchainBatchId & txHash
    */
-  async createBatchOnchain(dataDto: CreateBatchDto) {
-    const { product_id, creator_org_id, initial_data_hash, metadata_uri } =
-      dataDto
+  async createBatchOnchain(dto: CreateBatchDto, user: User) {
+    const { product_id, creator_org_id, initial_data_hash, metadata_uri } = dto
 
-    // 🧩 Validate product
+    // 1️⃣ Validate product
     const product = await this.productRepo.findOne({
       where: { id: product_id },
       relations: ['organization'],
     })
     if (!product) throw new NotFoundException('Product not found')
 
-    // 🧩 Validate organization (creator)
+    if (!product.onchain_product_id)
+      throw new BadRequestException(
+        'Product has not been synced on-chain. Cannot create batch.',
+      )
+
+    // 2️⃣ Validate creator organization
     const creatorOrg = await this.orgRepo.findOne({
       where: { id: creator_org_id },
     })
     if (!creatorOrg)
       throw new NotFoundException('Creator organization not found')
 
-    // ✅ Auto-generate batch code
+    // 3️⃣ Auto-generate batch code
     const seq =
-      (await this.batchRepo.count({ where: { product: { id: product.id } } })) +
-      1
+      (await this.batchRepo.count({
+        where: { product: { id: product.id } },
+      })) + 1
+
     const batchCode = generateBatchCode(
       product.name,
       creatorOrg.name || 'ORG',
       seq,
     )
 
-    // ✅ Check contract paused state
+    // 4️⃣ Check contract pause state
     const paused = await this.contract.paused().catch(() => false)
     if (paused) throw new BadRequestException('Contract is paused')
 
-    // ✅ Send on-chain transaction
-    let tx, onchainBatchId
+    // 5️⃣ Send on-chain TX (without waiting for event)
+    let tx
     try {
       tx = await this.contract.createBatch(
         product.onchain_product_id,
         initial_data_hash,
         metadata_uri || '',
       )
-      this.logger.log(`⛓️ Sending createBatch TX: ${tx.hash}`)
 
-      const receipt = await tx.wait()
-
-      const event = receipt.logs
-        .map((log) => {
-          try {
-            return this.contract.interface.parseLog(log)
-          } catch {
-            return null
-          }
-        })
-        .find((e) => e && e.name === 'BatchCreated')
-
-      onchainBatchId = event?.args?.batchId?.toString() ?? null
-      if (!onchainBatchId)
-        this.logger.warn('⚠️ BatchCreated event not found in receipt')
+      this.logger.log(`⛓️ Sent createBatch TX: ${tx.hash}`)
     } catch (err: any) {
-      this.logger.error(`❌ On-chain batch creation failed: ${err.message}`)
+      this.logger.error(`❌ On-chain TX failed: ${err.message}`)
       throw new BadRequestException(
         `Blockchain transaction failed: ${err.reason || err.message}`,
       )
     }
 
-    // ✅ Save in local DB
+    // 6️⃣ Save batch off-chain (pending sync)
     const batch = this.batchRepo.create({
       product,
       creator_org: creatorOrg,
       current_owner: creatorOrg,
-      onchain_batch_id: onchainBatchId ? Number(onchainBatchId) : null,
+
       initial_data_hash,
-      metadata_uri,
+      metadata_uri: metadata_uri || null,
+
       status: 'HARVESTED',
       closed: false,
+
+      tx_hash_pending: tx.hash,
+      onchain_synced: false,
+
+      metadata: {
+        generated_batch_code: batchCode,
+        createdBy: user.wallet_address,
+      },
     })
 
-    const saved = await this.batchRepo.save(batch)
+    const savedBatch = await this.batchRepo.save(batch)
+
+    // 7️⃣ Save batch code entity
+    const codeEntity = this.batchCodeRepo.create({
+      batch: savedBatch,
+      batch_code: batchCode,
+      batch_code_hash: ethers.utils.keccak256(
+        ethers.utils.toUtf8Bytes(batchCode),
+      ),
+    })
+
+    await this.batchCodeRepo.save(codeEntity)
 
     this.logger.log(
-      `✅ Batch created successfully: ${batchCode}, onchainId=${onchainBatchId}`,
+      `✅ Batch created locally: ${batchCode}, waiting on-chain sync...`,
     )
 
     return {
-      id: saved.id,
+      id: savedBatch.id,
       batch_code: batchCode,
-      onchain_batch_id: onchainBatchId,
-      tx_hash: tx.hash,
-      status: saved.status,
+      tx_hash_pending: tx.hash,
+      onchain_batch_id: null,
+      status: savedBatch.status,
     }
   }
 
@@ -203,24 +218,64 @@ export class BatchesService {
     })
   }
 
-  async updateByOnchainId(
-    onchainId: number,
-    updates: Partial<BatchEntity>,
-  ): Promise<BatchEntity | null> {
-    const batch = await this.batchRepo.findOne({
-      where: { onchain_batch_id: onchainId },
-      relations: ['product'],
-    })
+  async updateAfterOnchainSynced(params: {
+    tx_hash?: string
+    onchain_batch_id?: number
+    metadata?: Record<string, any>
+  }): Promise<BatchEntity | null> {
+    const { tx_hash, onchain_batch_id, metadata } = params
 
-    if (!batch) {
-      this.logger.warn(`⚠️ Batch with onchainId ${onchainId} not found.`)
-      return null
+    let batch: BatchEntity | null = null
+
+    // 🔍 1. Trường hợp tạo batch — tìm theo tx_hash_pending
+    if (tx_hash) {
+      batch = await this.batchRepo.findOne({
+        where: { tx_hash_pending: tx_hash },
+        relations: ['product', 'creator_org', 'current_owner'],
+      })
+
+      if (!batch) {
+        this.logger.warn(`⚠️ No batch found with tx_hash_pending=${tx_hash}`)
+        return null
+      }
+
+      if (onchain_batch_id) {
+        batch.onchain_batch_id = onchain_batch_id
+        batch.onchain_synced = true
+        batch.tx_hash_pending = null
+      }
     }
 
-    Object.assign(batch, updates)
+    // 🔍 2. Trường hợp update merkle root / trace events — tìm theo onchain_batch_id
+    else if (onchain_batch_id) {
+      batch = await this.batchRepo.findOne({
+        where: { onchain_batch_id },
+      })
+
+      if (!batch) {
+        this.logger.warn(
+          `⚠️ No batch found with onchain_batch_id=${onchain_batch_id}`,
+        )
+        return null
+      }
+    }
+
+    if (!batch) return null
+
+    // 🔄 3. Merge metadata (không ghi đè)
+    if (metadata) {
+      batch.metadata = {
+        ...(batch.metadata || {}),
+        ...metadata,
+      }
+    }
+
     const saved = await this.batchRepo.save(batch)
 
-    this.logger.log(`✅ Updated batch (onchainId=${onchainId})`)
+    this.logger.log(
+      `🔄 Batch updated (local id=${saved.id}, onchain_batch_id=${saved.onchain_batch_id})`,
+    )
+
     return saved
   }
 
@@ -257,5 +312,28 @@ export class BatchesService {
     await this.batchEventRepo.save(newEvent)
     this.logger.log(`📍 Added trace event to batch ${onchainBatchId}`)
     return newEvent
+  }
+
+  async findByOnchainId(onchainId: number): Promise<BatchEntity | null> {
+    return this.batchRepo.findOne({
+      where: { onchain_batch_id: onchainId },
+      relations: ['product', 'creator_org', 'current_owner'],
+    })
+  }
+
+  async saveBatchCode(params: {
+    batch: BatchEntity
+    batch_code: string
+    batch_code_hash: string
+  }) {
+    const { batch, batch_code, batch_code_hash } = params
+
+    const entity = this.batchCodeRepo.create({
+      batch,
+      batch_code,
+      batch_code_hash,
+    })
+
+    return this.batchCodeRepo.save(entity)
   }
 }

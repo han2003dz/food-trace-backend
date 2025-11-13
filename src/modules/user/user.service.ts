@@ -5,6 +5,7 @@ import { User } from './entities/user.entity'
 import { paginate, PaginateQuery } from 'nestjs-paginate'
 import { userPaginateConfig } from './config/user.paginate'
 import getLast6Chars from '@app/utils/format'
+import { ROLE } from '@app/common/enums/user-role'
 
 @Injectable()
 export class UserService {
@@ -36,7 +37,7 @@ export class UserService {
       user = this.userRepository.create({
         wallet_address: wallet_address,
         username,
-        role: 'USER',
+        role: ROLE.CONSUMER,
       })
       await this.userRepository.save(user)
     }
@@ -78,6 +79,34 @@ export class UserService {
     if (!user) throw new BadRequestException('User not found')
     user.username = username
     await this.userRepository.save(user)
+    return user
+  }
+
+  async updateRoleByOrgType(userId: string, orgType: string, savedOrg) {
+    const user = await this.userRepository.findOne({ where: { id: userId } })
+
+    if (!user) throw new BadRequestException('User not found')
+
+    // Mapping org_type -> role
+    const roleMap = {
+      PRODUCER: ROLE.PRODUCER,
+      RETAILER: ROLE.RETAILER,
+      LOGISTICS: ROLE.LOGISTICS,
+      AUDITOR: ROLE.AUDITOR,
+      ADMIN: ROLE.ADMIN,
+    } as const
+
+    const newRole = roleMap[orgType]
+
+    if (!newRole) {
+      throw new BadRequestException(`Invalid org_type: ${orgType}`)
+    }
+    // if (!user.isVerifiedByAdmin) { throw new ForbiddenException('User not verified'); }
+
+    user.role = newRole
+    user.organization = savedOrg
+    await this.userRepository.save(user)
+
     return user
   }
 }

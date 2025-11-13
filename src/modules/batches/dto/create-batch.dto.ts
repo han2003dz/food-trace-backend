@@ -16,8 +16,4 @@ export class CreateBatchDto {
   @IsString()
   @IsOptional()
   metadata_uri?: string
-
-  @IsString()
-  @IsOptional()
-  current_owner_id?: string
 }

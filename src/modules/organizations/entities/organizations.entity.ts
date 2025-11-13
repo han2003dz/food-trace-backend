@@ -21,7 +21,7 @@ export class Organizations {
 
   @Column({
     type: 'enum',
-    enum: ['PRODUCER', 'RETAILER', 'LOGISTICS', 'AUDITOR', 'ADMIN'],
+    enum: ['PRODUCER', 'RETAILER', 'LOGISTICS', 'AUDITOR'],
   })
   org_type: string
 

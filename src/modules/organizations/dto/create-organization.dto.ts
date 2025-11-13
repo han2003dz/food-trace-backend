@@ -7,12 +7,10 @@ import {
 } from 'class-validator'
 
 export enum OrgType {
-  FARM = 'FARM',
-  PROCESSOR = 'PROCESSOR',
+  PRODUCER = 'PRODUCER',
   LOGISTICS = 'LOGISTICS',
   RETAILER = 'RETAILER',
   AUDITOR = 'AUDITOR',
-  ADMIN = 'ADMIN',
 }
 
 export class CreateOrganizationDto {
@@ -22,10 +20,6 @@ export class CreateOrganizationDto {
 
   @IsEnum(OrgType)
   org_type: OrgType
-
-  @IsString()
-  @IsNotEmpty()
-  wallet_address: string
 
   @IsString()
   @IsOptional()

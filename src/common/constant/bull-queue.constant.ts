@@ -5,9 +5,11 @@ export const QUEUE = {
 
 export const BLOCK_KEY = 'blockNumber'
 export const CRAWL_EVENT = [
-  'RootCommitted',
+  'ProductCreated',
+  'BatchCreated',
+  'TraceEventRecorded',
+  'BatchMerkleRootCommitted',
   'BatchCodeBound',
-  'CommitterChanged',
 ]
 
 export const JOB = {

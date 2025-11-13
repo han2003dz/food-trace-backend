@@ -1,47 +1,20 @@
-import {
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  IsUrl,
-  IsUUID,
-} from 'class-validator'
-
 export class CreateProductDto {
-  @IsString()
-  @IsNotEmpty()
   name: string
 
-  @IsUUID()
-  @IsNotEmpty()
-  organization_id: string // FK to Organizations table
-
-  @IsString()
-  @IsOptional()
   description?: string
+  image_url?: string | null
 
-  @IsUrl()
-  @IsOptional()
-  image_url?: string
+  origin?: string
+  producer_name?: string
+  manufacture_date?: Date
+  expiry_date?: Date
 
-  @IsString()
-  @IsOptional()
   category?: string
-
-  @IsString()
-  @IsOptional()
   storage_conditions?: string
+  nutritional_info?: any
 
-  @IsOptional()
-  nutritional_info?: Record<string, any>
-
-  @IsString()
-  @IsOptional()
   metadata_uri?: string
-
-  @IsString()
-  @IsOptional()
   metadata_hash?: string
 
-  @IsOptional()
-  onchain_product_id?: number
+  organization_id?: string
 }

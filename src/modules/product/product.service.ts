@@ -54,109 +54,55 @@ export class ProductService {
    */
   async createProduct(dto: CreateProductDto, user: User) {
     try {
-      // 1️⃣ Determine the organization
-      let organization: Organizations | null = null
+      // const organization = await this.resolveOrganization(dto, user)
 
-      if (dto.organization_id) {
-        organization = await this.orgRepo.findOne({
-          where: { id: dto.organization_id },
-        })
-        if (!organization) throw new NotFoundException('Organization not found')
-      } else if (user.organization) {
-        organization = user.organization
-      } else {
-        throw new BadRequestException(
-          'User must belong to an organization or specify one.',
-        )
-      }
+      // await this.ensureProductNotExists(dto.name, organization.id)
 
-      // 2️⃣ Check if the product already exists
-      const exists = await this.productRepo.findOne({
-        where: {
-          name: dto.name,
-          organization: { id: organization.id },
-        },
-      })
+      const metadataUri = dto.metadata_uri ?? ''
+      const metadataHash = dto.metadata_hash ?? keccak256(toUtf8Bytes(dto.name))
 
-      if (exists)
-        throw new BadRequestException(
-          'Product already exists in this organization',
-        )
+      const imageUrl = dto.image_url ?? null
 
-      // 3️⃣ Prepare data
-      const imageUrl = dto.image_url || null
-      const metadataUri = dto.metadata_uri || ''
-      const metadataHash = dto.metadata_hash || keccak256(toUtf8Bytes(dto.name))
-
-      // 4️⃣ Create product on-chain
-      let tx, onchainProductId
-      try {
-        tx = await this.contract.createProduct(dto.name, metadataUri)
-        this.logger.log(`⛓️ Sending createProduct TX: ${tx.hash}`)
-
-        const receipt = await tx.wait()
-        const event = receipt.logs
-          .map((log) => {
-            try {
-              return this.contract.interface.parseLog(log)
-            } catch {
-              return null
-            }
-          })
-          .find((e) => e && e.name === 'ProductCreated')
-
-        onchainProductId = event?.args?.productId?.toString() ?? null
-
-        if (!onchainProductId)
-          this.logger.warn('⚠️ ProductCreated event not found in receipt')
-      } catch (err: any) {
-        this.logger.error(`❌ On-chain product creation failed: ${err.message}`)
-        throw new BadRequestException(
-          `Blockchain transaction failed: ${err.reason || err.message}`,
-        )
-      }
-
-      // 5️⃣ Save in local database
+      const tx = await this.sendOnchainCreate(dto.name, metadataUri)
       const product = this.productRepo.create({
         name: dto.name,
-        description: dto.description,
+        description: dto.description ?? null,
         image_url: imageUrl,
+
+        origin: dto.origin ?? null,
+        producer_name: dto.producer_name ?? null,
+        manufacture_date: dto.manufacture_date ?? null,
+        expiry_date: dto.expiry_date ?? null,
+
         category: dto.category ?? null,
         storage_conditions: dto.storage_conditions ?? null,
         nutritional_info: dto.nutritional_info ?? null,
+
         metadata_uri: metadataUri,
         metadata_hash: metadataHash,
-        onchain_product_id: onchainProductId ? Number(onchainProductId) : null,
-        organization,
+
+        tx_hash_pending: tx.hash,
+        onchain_product_id: null,
+        onchain_synced: false,
+
+        // organization,
         current_owner: user,
       })
 
-      const savedProduct = await this.productRepo.save(product)
+      const saved = await this.productRepo.save(product)
 
       this.logger.log(
-        `✅ Product created successfully: ${savedProduct.name}, onchainId=${onchainProductId}`,
+        `✅ Product created successfully: ${saved.name}, waiting on-chain sync.`,
       )
 
       return {
-        id: savedProduct.id,
-        name: savedProduct.name,
-        onchain_product_id: onchainProductId,
+        id: saved.id,
+        name: saved.name,
         tx_hash: tx.hash,
+        onchain_product_id: null,
       }
     } catch (error) {
-      this.logger.error(
-        `❌ Error creating product: ${error.message}`,
-        error.stack,
-      )
-
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
-        throw error
-      }
-
-      throw new BadRequestException('Failed to create product')
+      return this.handleCreateError(error)
     }
   }
 
@@ -187,27 +133,85 @@ export class ProductService {
     return product
   }
 
-  async updateOnchainProduct(
-    onchainProductId: number,
+  async updateByTxHashPending(
+    txHash: string,
     updates: Partial<Product>,
   ): Promise<Product | null> {
     const existing = await this.productRepo.findOne({
-      where: { onchain_product_id: onchainProductId },
+      where: { tx_hash_pending: txHash },
     })
 
     if (!existing) {
-      this.logger.warn(
-        `⚠️ Product with onchain ID ${onchainProductId} not found in DB.`,
-      )
+      this.logger.warn(`⚠️ No product found with pending tx_hash=${txHash}`)
       return null
     }
 
     Object.assign(existing, updates)
+
     const saved = await this.productRepo.save(existing)
 
     this.logger.log(
-      `✅ Product updated by onchainId=${onchainProductId} (${existing.name})`,
+      `✅ Product updated from tx_hash_pending (product=${saved.name})`,
     )
+
     return saved
+  }
+
+  private async sendOnchainCreate(name: string, metadataUri: string) {
+    try {
+      const tx = await this.contract.createProduct(name, metadataUri)
+      this.logger.log(`⛓️ TX sent: ${tx.hash}`)
+      await tx.wait()
+      return tx
+    } catch (err: any) {
+      this.logger.error(`❌ On-chain TX failed: ${err.message}`)
+      throw new BadRequestException(
+        `Blockchain transaction failed: ${err.reason || err.message}`,
+      )
+    }
+  }
+
+  private async ensureProductNotExists(name: string, orgId: string) {
+    const exists = await this.productRepo.findOne({
+      where: { name, organization: { id: orgId } },
+    })
+
+    if (exists) {
+      throw new BadRequestException(
+        'Product already exists in this organization',
+      )
+    }
+  }
+
+  private async resolveOrganization(dto: CreateProductDto, user: User) {
+    if (dto.organization_id) {
+      const org = await this.orgRepo.findOne({
+        where: { id: dto.organization_id },
+      })
+      if (!org) throw new NotFoundException('Organization not found')
+      return org
+    }
+
+    if (user.organization) return user.organization
+
+    throw new BadRequestException(
+      'User must belong to an organization or specify one.',
+    )
+  }
+
+  private handleCreateError(error: any) {
+    this.logger.error(
+      `❌ Error creating product: ${error.message}`,
+      error.stack,
+    )
+
+    if (
+      error instanceof BadRequestException ||
+      error instanceof NotFoundException
+    ) {
+      throw error
+    }
+
+    throw new BadRequestException('Failed to create product')
   }
 }

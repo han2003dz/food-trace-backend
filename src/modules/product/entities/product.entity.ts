@@ -34,8 +34,20 @@ export class Product {
   @Column({ type: 'varchar', length: 500, nullable: true })
   image_url?: string | null
 
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  origin?: string | null
+
   @Column({ type: 'varchar', length: 100, nullable: true })
   category?: string | null
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  producer_name?: string | null
+
+  @Column({ type: 'date', nullable: true })
+  manufacture_date?: Date | null
+
+  @Column({ type: 'date', nullable: true })
+  expiry_date?: Date | null
 
   @Column({ type: 'varchar', length: 255, nullable: true })
   storage_conditions?: string
@@ -52,6 +64,12 @@ export class Product {
   @Index('idx_products_onchain_id')
   @Column({ type: 'bigint', unique: true, nullable: true })
   onchain_product_id: number | null
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  tx_hash_pending: string | null
+
+  @Column({ default: false })
+  onchain_synced: boolean
 
   @OneToMany(() => BatchEntity, (batch) => batch.product)
   batches: BatchEntity[]

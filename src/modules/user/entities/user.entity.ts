@@ -14,8 +14,8 @@ export class User extends BaseUuidEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string
 
-  @Column({ unique: true })
-  email: string
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  email: string | null
 
   @Expose({ name: 'wallet_address' })
   @Column({ name: 'wallet_address', unique: true })

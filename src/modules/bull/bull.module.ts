@@ -15,6 +15,7 @@ import { DatabaseModule } from './../../database/database.module'
 import { OnchainEventModule } from '../onchain-events/onchain-events.module'
 import { EventParserService } from '../crawl/services/event-parser.service'
 import { BatchesModule } from '../batches/batches.module'
+import { ProductModule } from '../product/product.module'
 @Module({
   imports: [
     ScheduleModule.forRoot(),
@@ -47,6 +48,7 @@ import { BatchesModule } from '../batches/batches.module'
     CrawlModule,
     OnchainEventModule,
     BatchesModule,
+    ProductModule,
   ],
   providers: [CrawlProducer, CrawlProcessor, EventParserService],
 })

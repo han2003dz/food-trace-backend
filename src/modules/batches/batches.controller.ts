@@ -6,6 +6,7 @@ import {
   Param,
   HttpCode,
   HttpStatus,
+  Req,
 } from '@nestjs/common'
 import {
   ApiBearerAuth,
@@ -15,6 +16,7 @@ import {
 } from '@nestjs/swagger'
 import { BatchesService } from './batches.service'
 import { CreateBatchDto } from './dto/create-batch.dto'
+import { Request } from 'express'
 
 @ApiTags('Batches')
 @Controller('batches')
@@ -39,8 +41,8 @@ export class BatchesController {
     status: 400,
     description: 'Invalid input data or transaction reverted',
   })
-  async createBatch(@Body() dto: CreateBatchDto) {
-    return this.batchesService.createBatchOnchain(dto)
+  async createBatch(@Body() dto: CreateBatchDto, @Req() req: Request) {
+    return this.batchesService.createBatchOnchain(dto, req.user)
   }
 
   @Post('/:onchainBatchId/event')

@@ -74,6 +74,12 @@ export class BatchEntity {
   @OneToMany(() => BatchCertificationEntity, (bc) => bc.batch)
   certifications: BatchCertificationEntity[]
 
+  @Column({ nullable: true })
+  tx_hash_pending: string
+
+  @Column({ default: false })
+  onchain_synced: boolean
+
   @CreateDateColumn()
   created_at: Date
 

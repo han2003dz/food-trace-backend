@@ -47,9 +47,13 @@ export class AuthService {
         sub: user.id,
         wallet_address: user.wallet_address,
       }
+
+      console.log('payload', payload)
       const response = new SignInResponseDto()
       response.accessToken = await this.jwtService.signAsync(payload)
       response.user = user
+
+      console.log('response', response)
 
       this.cacheable.delete(wallet_address)
       return response
