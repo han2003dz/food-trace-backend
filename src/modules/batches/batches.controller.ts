@@ -17,6 +17,7 @@ import {
 import { BatchesService } from './batches.service'
 import { CreateBatchDto } from './dto/create-batch.dto'
 import { Request } from 'express'
+import { Public } from '@app/metadata/public.metadata'
 
 @ApiTags('Batches')
 @Controller('batches')
@@ -83,5 +84,30 @@ export class BatchesController {
   ) {
     const { merkleRoot } = body
     return this.batchesService.commitMerkleRoot(onchainBatchId, merkleRoot)
+  }
+
+  @Get('/my')
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get batch by user' })
+  @ApiResponse({
+    status: 200,
+    description: 'Get batch by user successfully',
+  })
+  async getBatchByUser(@Req() req: Request) {
+    return this.batchesService.getBatchByUser(req.user)
+  }
+
+  @Public()
+  @Get(':id')
+  @ApiOperation({
+    summary: 'Get batch detail with product, QR, merkle, timeline',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Batch detail fetched successfully',
+  })
+  getBatchDetail(@Param('id') id: string) {
+    return this.batchesService.getBatchDetail(id)
   }
 }

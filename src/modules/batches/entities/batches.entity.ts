@@ -15,6 +15,7 @@ import { BatchEventEntity } from './batch-event.entity'
 import { BatchCodeEntity } from './batch-code.entity'
 import { MerkleRootEntity } from '@app/modules/merkle-root/entities/merkle-root.entity'
 import { BatchCertificationEntity } from '@app/modules/certification/entities/batch-certification.entity'
+import { User } from '@app/modules/user/entities/user.entity'
 
 @Entity('batches')
 export class BatchEntity {
@@ -32,6 +33,10 @@ export class BatchEntity {
   @ManyToOne(() => Organizations)
   @JoinColumn({ name: 'current_owner_id' })
   current_owner: Organizations
+
+  @ManyToOne(() => User)
+  @JoinColumn({ name: 'creator_user_id' })
+  creator_user: User
 
   @Column({ type: 'bigint', nullable: true })
   onchain_batch_id: number

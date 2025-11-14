@@ -10,10 +10,6 @@ export class CreateBatchDto {
   creator_org_id: string
 
   @IsString()
-  @IsNotEmpty()
-  initial_data_hash: string
-
-  @IsString()
   @IsOptional()
   metadata_uri?: string
 }

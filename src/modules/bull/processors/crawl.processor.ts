@@ -8,6 +8,7 @@ import { OnchainEventService } from '@app/modules/onchain-events/onchain-events.
 import { ParsedEvent } from '@app/modules/crawl/types/parsed-event.type'
 import { BatchesService } from '@app/modules/batches/batches.service'
 import { ProductService } from '@app/modules/product/product.service'
+import { BatchEventMap } from '@app/common/constant/batch-event.constant'
 
 @Processor('crawl')
 export class CrawlProcessor extends WorkerHost {
@@ -121,12 +122,11 @@ export class CrawlProcessor extends WorkerHost {
    */
   private async handleBatchCreated(event: ParsedEvent) {
     const { args, tx_hash } = event
-
-    const onchainBatchId = Number(args.batchId)
+    const batchId = Number(args?.batchId)
 
     await this.batchesService.updateAfterOnchainSynced({
+      onchain_batch_id: batchId,
       tx_hash,
-      onchain_batch_id: onchainBatchId,
     })
   }
 
@@ -136,7 +136,7 @@ export class CrawlProcessor extends WorkerHost {
   private async handleTraceEventRecorded(event: ParsedEvent) {
     const { args, tx_hash, block_number } = event
     const batchId = Number(args?.batchId)
-    const eventType = Number(args?.eventType)
+    const rawType = Number(args.eventType)
     const actor = args?.actor
     const dataHash = args?.dataHash
 
@@ -145,12 +145,18 @@ export class CrawlProcessor extends WorkerHost {
       return
     }
 
+    const mappedType = BatchEventMap[rawType]
+    if (!mappedType) {
+      this.logger.error(`[TraceEventRecorded] Unknown event type=${rawType}`)
+      return
+    }
+
     this.logger.log(
-      `📍 TraceEventRecorded → batchId=${batchId}, type=${eventType}, actor=${actor}`,
+      `📍 TraceEventRecorded → batchId=${batchId}, type=${mappedType}, actor=${actor}`,
     )
 
     await this.batchesService.appendTraceEvent?.(batchId, {
-      event_type: eventType.toString(),
+      event_type: mappedType,
       actor_wallet: actor,
       data_hash: dataHash,
       tx_hash,

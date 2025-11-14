@@ -1,4 +1,4 @@
-import { keccak256, toUtf8Bytes } from 'ethers/lib/utils'
+import { keccak256, sha256, toUtf8Bytes } from 'ethers/lib/utils'
 
 type Plain = Record<string, any>
 
@@ -21,4 +21,12 @@ export function canonicalize(obj: Plain): string {
 export function leafHash(payload: Plain): `0x${string}` {
   const canon = canonicalize(payload)
   return keccak256(toUtf8Bytes(canon)) as `0x${string}`
+}
+
+export function hashUtf8(input: string): string {
+  return sha256(toUtf8Bytes(input))
+}
+
+export function hashJson(obj: any): string {
+  return sha256(toUtf8Bytes(JSON.stringify(obj)))
 }

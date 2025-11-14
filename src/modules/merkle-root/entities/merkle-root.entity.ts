@@ -29,6 +29,12 @@ export class MerkleRootEntity {
   @Column({ nullable: true })
   tx_hash: string
 
+  @Column({ nullable: true })
+  root_hash: string
+
+  @Column({ nullable: true })
+  block_number: number
+
   @CreateDateColumn()
   created_at: Date
 }
