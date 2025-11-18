@@ -1,0 +1,9 @@
+export enum BatchEventType {
+  CREATED = 'CREATED',
+  PROCESSED = 'PROCESSED',
+  SHIPPED = 'SHIPPED',
+  RECEIVED = 'RECEIVED',
+  STORED = 'STORED',
+  SOLD = 'SOLD',
+  RECALLED = 'RECALLED',
+}

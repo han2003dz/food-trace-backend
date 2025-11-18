@@ -1,15 +1,15 @@
 import { SelectQueryBuilder } from 'typeorm'
 import { PaginateQuery } from 'nestjs-paginate'
 
-type SortOrder = 'ASC' | 'DESC'
-
 export function applyFiltersAndSort<T>(
-  queryBuilder: SelectQueryBuilder<T>,
+  qb: SelectQueryBuilder<T>,
   query: PaginateQuery,
   alias: string,
 ) {
+  // ensure filter object exists
   if (!query.filter) query.filter = {}
 
+  // Extract filter.status, filter.xxx from query
   Object.keys(query).forEach((key) => {
     if (key.startsWith('filter.')) {
       const filterKey = key.replace('filter.', '')
@@ -17,18 +17,9 @@ export function applyFiltersAndSort<T>(
     }
   })
 
-  if (query.sortBy) {
-    const sortStr = query.sortBy.toString()
-    let [field, order] = sortStr.split(':')
-    if (order !== 'ASC' && order !== 'DESC') {
-      order = 'DESC'
-      field = field
-    }
-    queryBuilder.addOrderBy(
-      `${alias}.${field}`,
-      order.toUpperCase() as SortOrder,
-    )
-  }
+  Object.entries(query.filter).forEach(([field, value]) => {
+    qb.andWhere(`${alias}.${field} = :${field}`, { [field]: value })
+  })
 
-  return queryBuilder
+  return qb
 }

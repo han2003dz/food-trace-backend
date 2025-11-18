@@ -1,3 +1,4 @@
+import { BatchEventType } from '@app/common/enums/batch.enum'
 import { BatchEntity } from '@app/modules/batches/entities/batches.entity'
 import { Organizations } from '@app/modules/organizations/entities/organizations.entity'
 import {
@@ -20,15 +21,7 @@ export class BatchEventEntity {
 
   @Column({
     type: 'enum',
-    enum: [
-      'CREATED',
-      'PROCESSED',
-      'SHIPPED',
-      'RECEIVED',
-      'STORED',
-      'SOLD',
-      'RECALLED',
-    ],
+    enum: BatchEventType,
   })
   event_type: string
 

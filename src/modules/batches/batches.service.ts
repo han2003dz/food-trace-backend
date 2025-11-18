@@ -25,6 +25,12 @@ import {
   BatchDetailResponseDto,
   BatchTimelineItemDto,
 } from './responses/batch-detail.response'
+import { paginate, Paginated, PaginateQuery } from 'nestjs-paginate'
+import { applyFiltersAndSort } from '@app/common/helper/pagination.helper'
+import { UpdateBatchStatusDto } from './dto/update-batch.dto'
+import { BatchEventType } from '@app/common/enums/batch.enum'
+import { sha256 } from 'ethers/lib/utils'
+import { EventTypeToOnchainIndex } from '@app/common/constant/batch-event.constant'
 
 @Injectable()
 export class BatchesService {
@@ -176,10 +182,21 @@ export class BatchesService {
     }
   }
 
-  async findAll() {
-    return this.batchRepo.find({
-      relations: ['product', 'creator_org', 'current_owner'],
-      order: { created_at: 'DESC' },
+  async findAll(query: PaginateQuery): Promise<Paginated<BatchEntity>> {
+    const qb = this.batchRepo
+      .createQueryBuilder('batch')
+      .leftJoinAndSelect('batch.product', 'product')
+      .leftJoinAndSelect('batch.creator_org', 'creator_org')
+      .leftJoinAndSelect('batch.current_owner', 'current_owner')
+
+    applyFiltersAndSort(qb, query, 'batch')
+
+    return paginate(query, qb, {
+      sortableColumns: ['created_at', 'updated_at', 'status'],
+      searchableColumns: ['id'],
+      defaultSortBy: [['created_at', 'DESC']],
+      maxLimit: 50,
+      defaultLimit: 10,
     })
   }
 
@@ -421,6 +438,63 @@ export class BatchesService {
     }
   }
 
+  async updateBatchStatusFromOnchain(
+    id: string,
+    dto: UpdateBatchStatusDto,
+    user: User,
+  ) {
+    const { event_type, metadata_uri } = dto
+
+    const batch = await this.batchRepo.findOne({
+      where: { id },
+      relations: ['creator_org', 'current_owner', 'product'],
+    })
+
+    if (!batch) throw new NotFoundException('Batch not found')
+    console.log('user.organization?.id', user.organization?.id)
+    if (batch.current_owner?.id !== user.organization?.id) {
+      throw new BadRequestException(
+        'You are not the current owner of this batch',
+      )
+    }
+
+    if (!batch.onchain_batch_id)
+      throw new BadRequestException('Batch is not yet registered on-chain')
+
+    this.ensureStatusTransition(batch.status as BatchEventType, event_type)
+
+    const data_hash = metadata_uri ? sha256(metadata_uri) : '0x'
+    const onchainType = EventTypeToOnchainIndex[event_type]
+
+    let tx
+    try {
+      tx = await this.contract.recordEvent(
+        batch.onchain_batch_id,
+        onchainType,
+        data_hash ?? '0x',
+        metadata_uri ?? '',
+      )
+
+      this.logger.log(`⛓  Sending recordEvent TX: ${tx.hash}`)
+      await tx.wait()
+    } catch (err: any) {
+      this.logger.error(`❌ On-chain TX failed: ${err.message}`)
+      throw new BadRequestException(
+        `Blockchain error: ${err.reason || err.message}`,
+      )
+    }
+
+    batch.tx_hash_pending = tx.hash
+    await this.batchRepo.save(batch)
+
+    return {
+      id: batch.id,
+      event_type,
+      tx_hash: tx.hash,
+      status: 'PENDING_ONCHAIN',
+    }
+  }
+
   private buildTimeline(batch: BatchEntity): BatchTimelineItemDto[] {
     if (!batch.events.length) return []
 
@@ -450,5 +524,24 @@ export class BatchesService {
         actor_org_name: e.actor_org?.name ?? null,
         tx_hash: e.tx_hash ?? null,
       }))
+  }
+
+  private ensureStatusTransition(
+    current: BatchEventType,
+    next: BatchEventType,
+  ) {
+    const workflow: Record<BatchEventType, BatchEventType[]> = {
+      [BatchEventType.CREATED]: [BatchEventType.PROCESSED],
+      [BatchEventType.PROCESSED]: [BatchEventType.SHIPPED],
+      [BatchEventType.SHIPPED]: [BatchEventType.RECEIVED],
+      [BatchEventType.RECEIVED]: [BatchEventType.STORED],
+      [BatchEventType.STORED]: [BatchEventType.SOLD],
+      [BatchEventType.SOLD]: [],
+      [BatchEventType.RECALLED]: [],
+    }
+
+    if (!workflow[current].includes(next)) {
+      throw new BadRequestException(`Invalid transition: ${current} → ${next}`)
+    }
   }
 }

@@ -18,6 +18,8 @@ import { BatchesService } from './batches.service'
 import { CreateBatchDto } from './dto/create-batch.dto'
 import { Request } from 'express'
 import { Public } from '@app/metadata/public.metadata'
+import { Paginate, PaginateQuery } from 'nestjs-paginate'
+import { UpdateBatchStatusDto } from './dto/update-batch.dto'
 
 @ApiTags('Batches')
 @Controller('batches')
@@ -25,13 +27,14 @@ export class BatchesController {
   constructor(private readonly batchesService: BatchesService) {}
 
   @Get()
+  @Public()
   @ApiOperation({ summary: 'Get all batches' })
   @ApiResponse({
     status: 200,
     description: 'List of batches retrieved successfully',
   })
-  async getAllBatches() {
-    return this.batchesService.findAll()
+  findAll(@Paginate() query: PaginateQuery) {
+    return this.batchesService.findAll(query)
   }
 
   @Post('/create')
@@ -109,5 +112,20 @@ export class BatchesController {
   })
   getBatchDetail(@Param('id') id: string) {
     return this.batchesService.getBatchDetail(id)
+  }
+
+  @Post(':id/update-status')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update batch status from on-chain data' })
+  @ApiResponse({
+    status: 200,
+    description: 'Batch status updated successfully',
+  })
+  async updateStatus(
+    @Param('id') id: string,
+    @Body() dto: UpdateBatchStatusDto,
+    @Req() req: Request,
+  ) {
+    return this.batchesService.updateBatchStatusFromOnchain(id, dto, req.user)
   }
 }
