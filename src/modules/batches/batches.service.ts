@@ -49,6 +49,8 @@ export class BatchesService {
     private readonly productRepo: Repository<Product>,
     @InjectRepository(Organizations)
     private readonly orgRepo: Repository<Organizations>,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
     private readonly configService: ConfigService,
   ) {
     const rpc = this.configService.getOrThrow<string>('RPC_URL')
@@ -128,7 +130,7 @@ export class BatchesService {
 
       initial_data_hash,
       metadata_uri,
-      status: 'HARVESTED',
+      status: BatchEventType.CREATED,
       closed: false,
 
       metadata: {
@@ -213,7 +215,7 @@ export class BatchesService {
     tx_hash?: string
     block_number?: number
     metadata?: Record<string, any>
-    status?: string
+    status?: BatchEventType
     synced?: boolean
   }): Promise<BatchEntity | null> {
     const {
@@ -299,11 +301,40 @@ export class BatchesService {
 
     if (!batch) {
       this.logger.warn(
-        `⚠️ Cannot append event — batch ${onchainBatchId} not found`,
+        `⚠ Cannot append event — batch ${onchainBatchId} not found`,
       )
       return null
     }
 
+    const existing = await this.batchEventRepo.findOne({
+      where: {
+        batch: { id: batch.id },
+        tx_hash: eventData.tx_hash,
+        block_number: eventData.block_number,
+        event_type: eventData.event_type,
+      },
+    })
+
+    if (existing) {
+      this.logger.log(
+        `🔁 Skip duplicate event for batch ${onchainBatchId} (tx=${eventData.tx_hash})`,
+      )
+      return existing
+    }
+
+    const statusMap: Record<string, BatchEventType> = {
+      CREATED: BatchEventType.CREATED,
+      PROCESSED: BatchEventType.PROCESSED,
+      SHIPPED: BatchEventType.SHIPPED,
+      RECEIVED: BatchEventType.RECEIVED,
+      STORED: BatchEventType.STORED,
+      SOLD: BatchEventType.SOLD,
+      RECALLED: BatchEventType.RECALLED,
+      CUSTOM: batch.status,
+    }
+
+    const newStatus: BatchEventType =
+      statusMap[eventData.event_type] ?? batch.status
     const newEvent = this.batchEventRepo.create({
       batch,
       event_type: eventData.event_type,
@@ -314,7 +345,39 @@ export class BatchesService {
     })
 
     await this.batchEventRepo.save(newEvent)
-    this.logger.log(`📍 Added trace event to batch ${onchainBatchId}`)
+    const shouldChangeOwner = [
+      'RECEIVED',
+      'STORED',
+      'SOLD',
+      'RECALLED',
+    ].includes(eventData.event_type)
+
+    let updatedOwner = batch.current_owner
+
+    if (shouldChangeOwner) {
+      const actorOrg = await this.orgRepo.findOne({
+        where: { wallet_address: eventData.actor_wallet },
+      })
+
+      if (actorOrg) {
+        updatedOwner = actorOrg
+      }
+    }
+    const newClosed =
+      ['SOLD', 'RECALLED'].includes(eventData.event_type) || batch.closed
+    await this.batchRepo.update(
+      { id: batch.id },
+      {
+        status: newStatus,
+        closed: newClosed,
+        current_owner: updatedOwner,
+      },
+    )
+
+    this.logger.log(
+      `📌 Added new trace event for batch ${onchainBatchId} (${eventData.event_type})`,
+    )
+
     return newEvent
   }
 
@@ -444,15 +507,21 @@ export class BatchesService {
     user: User,
   ) {
     const { event_type, metadata_uri } = dto
-
-    const batch = await this.batchRepo.findOne({
-      where: { id },
-      relations: ['creator_org', 'current_owner', 'product'],
-    })
-
+    const [batch, fullUser] = await Promise.all([
+      this.batchRepo.findOne({
+        where: { id },
+        relations: ['creator_org', 'current_owner', 'product'],
+      }),
+      this.userRepo.findOne({
+        where: { id: user.id },
+        relations: ['organization'],
+      }),
+    ])
+    if (!fullUser || !fullUser.organization)
+      throw new BadRequestException('User organization not found')
     if (!batch) throw new NotFoundException('Batch not found')
-    console.log('user.organization?.id', user.organization?.id)
-    if (batch.current_owner?.id !== user.organization?.id) {
+    console.log('user.organization?.id', user)
+    if (batch.current_owner?.id !== fullUser.organization.id) {
       throw new BadRequestException(
         'You are not the current owner of this batch',
       )
@@ -462,17 +531,18 @@ export class BatchesService {
       throw new BadRequestException('Batch is not yet registered on-chain')
 
     this.ensureStatusTransition(batch.status as BatchEventType, event_type)
+    const ZERO_BYTES32 =
+      '0x0000000000000000000000000000000000000000000000000000000000000000'
 
-    const data_hash = metadata_uri ? sha256(metadata_uri) : '0x'
+    const data_hash = metadata_uri ? sha256(metadata_uri) : ZERO_BYTES32
     const onchainType = EventTypeToOnchainIndex[event_type]
 
     let tx
     try {
-      tx = await this.contract.recordEvent(
+      tx = await this.contract.recordTraceEvent(
         batch.onchain_batch_id,
         onchainType,
-        data_hash ?? '0x',
-        metadata_uri ?? '',
+        data_hash,
       )
 
       this.logger.log(`⛓  Sending recordEvent TX: ${tx.hash}`)
@@ -527,10 +597,10 @@ export class BatchesService {
   }
 
   private ensureStatusTransition(
-    current: BatchEventType,
-    next: BatchEventType,
+    currentStatus: BatchEventType,
+    nextEvent: BatchEventType,
   ) {
-    const workflow: Record<BatchEventType, BatchEventType[]> = {
+    const transitions: Record<BatchEventType, BatchEventType[]> = {
       [BatchEventType.CREATED]: [BatchEventType.PROCESSED],
       [BatchEventType.PROCESSED]: [BatchEventType.SHIPPED],
       [BatchEventType.SHIPPED]: [BatchEventType.RECEIVED],
@@ -540,8 +610,22 @@ export class BatchesService {
       [BatchEventType.RECALLED]: [],
     }
 
-    if (!workflow[current].includes(next)) {
-      throw new BadRequestException(`Invalid transition: ${current} → ${next}`)
+    if (!currentStatus || !(currentStatus in transitions)) {
+      throw new BadRequestException(
+        `Invalid current batch status: ${currentStatus}`,
+      )
+    }
+
+    if (!nextEvent || !(nextEvent in BatchEventType)) {
+      throw new BadRequestException(`Invalid event type: ${nextEvent}`)
+    }
+
+    const allowed = transitions[currentStatus]
+
+    if (!allowed.includes(nextEvent)) {
+      throw new BadRequestException(
+        `Invalid transition: cannot change batch status from ${currentStatus} → ${nextEvent}`,
+      )
     }
   }
 }

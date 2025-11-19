@@ -7,6 +7,7 @@ import { Product } from '../product/entities/product.entity'
 import { BatchEventEntity } from './entities/batch-event.entity'
 import { Organizations } from '../organizations/entities/organizations.entity'
 import { BatchCodeEntity } from './entities/batch-code.entity'
+import { User } from '../user/entities/user.entity'
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { BatchCodeEntity } from './entities/batch-code.entity'
       Product,
       Organizations,
       BatchCodeEntity,
+      User,
     ]),
   ],
   providers: [BatchesService],
