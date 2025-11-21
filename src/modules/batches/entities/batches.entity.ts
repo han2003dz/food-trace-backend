@@ -16,7 +16,7 @@ import { BatchCodeEntity } from './batch-code.entity'
 import { MerkleRootEntity } from '@app/modules/merkle-root/entities/merkle-root.entity'
 import { BatchCertificationEntity } from '@app/modules/certification/entities/batch-certification.entity'
 import { User } from '@app/modules/user/entities/user.entity'
-import { BatchEventType } from '@app/common/enums/batch.enum'
+import { BatchStatus } from '@app/common/enums/batch.enum'
 
 @Entity('batches')
 export class BatchEntity {
@@ -50,10 +50,10 @@ export class BatchEntity {
 
   @Column({
     type: 'enum',
-    enum: BatchEventType,
-    default: BatchEventType.CREATED,
+    enum: BatchStatus,
+    default: BatchStatus.HARVESTED,
   })
-  status: BatchEventType
+  status: BatchStatus
 
   @Column({ default: false })
   closed: boolean

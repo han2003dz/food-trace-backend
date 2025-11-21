@@ -7,6 +7,7 @@ import {
   HttpCode,
   HttpStatus,
   Req,
+  Patch,
 } from '@nestjs/common'
 import {
   ApiBearerAuth,
@@ -102,7 +103,7 @@ export class BatchesController {
   }
 
   @Public()
-  @Get(':id')
+  @Get(':id/detail')
   @ApiOperation({
     summary: 'Get batch detail with product, QR, merkle, timeline',
   })
@@ -122,6 +123,24 @@ export class BatchesController {
     description: 'Batch status updated successfully',
   })
   async updateStatus(
+    @Param('id') id: string,
+    @Body() dto: UpdateBatchStatusDto,
+    @Req() req: Request,
+  ) {
+    return this.batchesService.updateBatchStatusFromOnchain(id, dto, req.user)
+  }
+
+  @Patch(':id/transfer')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary:
+      'Record a trace event on-chain (PROCESS / SHIP / RECEIVE / STORE / SELL / RECALL)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Batch ownership transferred successfully',
+  })
+  async transferOwnership(
     @Param('id') id: string,
     @Body() dto: UpdateBatchStatusDto,
     @Req() req: Request,

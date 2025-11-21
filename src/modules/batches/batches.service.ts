@@ -28,9 +28,12 @@ import {
 import { paginate, Paginated, PaginateQuery } from 'nestjs-paginate'
 import { applyFiltersAndSort } from '@app/common/helper/pagination.helper'
 import { UpdateBatchStatusDto } from './dto/update-batch.dto'
-import { BatchEventType } from '@app/common/enums/batch.enum'
+import {
+  BatchEventType,
+  BatchStatus,
+  EventTypeToOnchainIndex,
+} from '@app/common/enums/batch.enum'
 import { sha256 } from 'ethers/lib/utils'
-import { EventTypeToOnchainIndex } from '@app/common/constant/batch-event.constant'
 
 @Injectable()
 export class BatchesService {
@@ -122,6 +125,8 @@ export class BatchesService {
     this.logger.log(`⛓️ Sending createBatch TX: ${tx.hash}`)
     await tx.wait()
 
+    console.log('tx', tx)
+
     const batch = this.batchRepo.create({
       product,
       creator_org: creatorOrg,
@@ -130,7 +135,7 @@ export class BatchesService {
 
       initial_data_hash,
       metadata_uri,
-      status: BatchEventType.CREATED,
+      status: BatchStatus.HARVESTED,
       closed: false,
 
       metadata: {
@@ -215,7 +220,7 @@ export class BatchesService {
     tx_hash?: string
     block_number?: number
     metadata?: Record<string, any>
-    status?: BatchEventType
+    status?: BatchStatus
     synced?: boolean
   }): Promise<BatchEntity | null> {
     const {
@@ -288,7 +293,7 @@ export class BatchesService {
   async appendTraceEvent(
     onchainBatchId: number,
     eventData: {
-      event_type: string
+      event_type: BatchEventType
       actor_wallet: string
       data_hash: string
       tx_hash: string
@@ -297,6 +302,7 @@ export class BatchesService {
   ) {
     const batch = await this.batchRepo.findOne({
       where: { onchain_batch_id: onchainBatchId },
+      relations: ['current_owner', 'creator_org'],
     })
 
     if (!batch) {
@@ -306,6 +312,7 @@ export class BatchesService {
       return null
     }
 
+    // ⛔ Prevent duplicates
     const existing = await this.batchEventRepo.findOne({
       where: {
         batch: { id: batch.id },
@@ -315,68 +322,55 @@ export class BatchesService {
       },
     })
 
-    if (existing) {
-      this.logger.log(
-        `🔁 Skip duplicate event for batch ${onchainBatchId} (tx=${eventData.tx_hash})`,
-      )
-      return existing
+    if (existing) return existing
+
+    // 🔎 Identify actor_org
+    const actorOrg = await this.orgRepo.findOne({
+      where: { wallet_address: eventData.actor_wallet },
+    })
+
+    // 🗺 Mapping Event → Status
+    const EventToStatus: Record<BatchEventType, BatchStatus | null> = {
+      CREATED: BatchStatus.HARVESTED,
+      PROCESSED: BatchStatus.PROCESSED,
+      SHIPPED: BatchStatus.IN_TRANSIT,
+      RECEIVED: BatchStatus.WAREHOUSE,
+      STORED: BatchStatus.WAREHOUSE,
+      SOLD: BatchStatus.SOLD,
+      RECALLED: BatchStatus.RECALLED,
+      CUSTOM: null,
     }
 
-    const statusMap: Record<string, BatchEventType> = {
-      CREATED: BatchEventType.CREATED,
-      PROCESSED: BatchEventType.PROCESSED,
-      SHIPPED: BatchEventType.SHIPPED,
-      RECEIVED: BatchEventType.RECEIVED,
-      STORED: BatchEventType.STORED,
-      SOLD: BatchEventType.SOLD,
-      RECALLED: BatchEventType.RECALLED,
-      CUSTOM: batch.status,
-    }
+    const newStatus = EventToStatus[eventData.event_type] ?? batch.status
 
-    const newStatus: BatchEventType =
-      statusMap[eventData.event_type] ?? batch.status
-    const newEvent = this.batchEventRepo.create({
+    // 📝 Save event
+    const newEvent = await this.batchEventRepo.save({
       batch,
       event_type: eventData.event_type,
       data_hash: eventData.data_hash,
       tx_hash: eventData.tx_hash,
       block_number: eventData.block_number,
-      actor_org: batch.creator_org || null,
+      actor_org: actorOrg ?? null,
     })
 
-    await this.batchEventRepo.save(newEvent)
-    const shouldChangeOwner = [
-      'RECEIVED',
-      'STORED',
-      'SOLD',
-      'RECALLED',
-    ].includes(eventData.event_type)
-
+    // 🔄 Determine new owner
     let updatedOwner = batch.current_owner
 
-    if (shouldChangeOwner) {
-      const actorOrg = await this.orgRepo.findOne({
-        where: { wallet_address: eventData.actor_wallet },
-      })
+    const ownerChangingEvents = ['RECEIVED', 'STORED', 'SOLD', 'RECALLED']
 
-      if (actorOrg) {
-        updatedOwner = actorOrg
-      }
+    if (ownerChangingEvents.includes(eventData.event_type) && actorOrg) {
+      updatedOwner = actorOrg
     }
-    const newClosed =
-      ['SOLD', 'RECALLED'].includes(eventData.event_type) || batch.closed
-    await this.batchRepo.update(
-      { id: batch.id },
-      {
-        status: newStatus,
-        closed: newClosed,
-        current_owner: updatedOwner,
-      },
-    )
 
-    this.logger.log(
-      `📌 Added new trace event for batch ${onchainBatchId} (${eventData.event_type})`,
-    )
+    const closed =
+      ['SOLD', 'RECALLED'].includes(eventData.event_type) || batch.closed
+
+    // 🔧 Update main batch
+    await this.batchRepo.update(batch.id, {
+      status: newStatus,
+      closed,
+      current_owner: updatedOwner,
+    })
 
     return newEvent
   }
@@ -507,6 +501,7 @@ export class BatchesService {
     user: User,
   ) {
     const { event_type, metadata_uri } = dto
+
     const [batch, fullUser] = await Promise.all([
       this.batchRepo.findOne({
         where: { id },
@@ -517,27 +512,36 @@ export class BatchesService {
         relations: ['organization'],
       }),
     ])
+
+    if (!batch) throw new NotFoundException('Batch not found')
     if (!fullUser || !fullUser.organization)
       throw new BadRequestException('User organization not found')
-    if (!batch) throw new NotFoundException('Batch not found')
-    console.log('user.organization?.id', user)
+
     if (batch.current_owner?.id !== fullUser.organization.id) {
       throw new BadRequestException(
         'You are not the current owner of this batch',
       )
     }
 
-    if (!batch.onchain_batch_id)
+    if (!batch.onchain_batch_id) {
       throw new BadRequestException('Batch is not yet registered on-chain')
+    }
 
-    this.ensureStatusTransition(batch.status as BatchEventType, event_type)
+    this.ensureStatusTransition(batch.status as BatchStatus, event_type)
+
     const ZERO_BYTES32 =
       '0x0000000000000000000000000000000000000000000000000000000000000000'
 
-    const data_hash = metadata_uri ? sha256(metadata_uri) : ZERO_BYTES32
-    const onchainType = EventTypeToOnchainIndex[event_type]
+    const data_hash = metadata_uri
+      ? sha256(Buffer.from(metadata_uri))
+      : ZERO_BYTES32
 
-    let tx
+    const onchainType = EventTypeToOnchainIndex[event_type]
+    if (onchainType === undefined) {
+      throw new BadRequestException(`Unsupported event_type: ${event_type}`)
+    }
+
+    let tx: ethers.ContractTransaction
     try {
       tx = await this.contract.recordTraceEvent(
         batch.onchain_batch_id,
@@ -545,7 +549,7 @@ export class BatchesService {
         data_hash,
       )
 
-      this.logger.log(`⛓  Sending recordEvent TX: ${tx.hash}`)
+      this.logger.log(`⛓  Sending recordTraceEvent TX: ${tx.hash}`)
       await tx.wait()
     } catch (err: any) {
       this.logger.error(`❌ On-chain TX failed: ${err.message}`)
@@ -597,34 +601,44 @@ export class BatchesService {
   }
 
   private ensureStatusTransition(
-    currentStatus: BatchEventType,
+    currentStatus: BatchStatus | string,
     nextEvent: BatchEventType,
   ) {
-    const transitions: Record<BatchEventType, BatchEventType[]> = {
-      [BatchEventType.CREATED]: [BatchEventType.PROCESSED],
-      [BatchEventType.PROCESSED]: [BatchEventType.SHIPPED],
-      [BatchEventType.SHIPPED]: [BatchEventType.RECEIVED],
-      [BatchEventType.RECEIVED]: [BatchEventType.STORED],
-      [BatchEventType.STORED]: [BatchEventType.SOLD],
-      [BatchEventType.SOLD]: [],
-      [BatchEventType.RECALLED]: [],
+    const allowed: Record<BatchStatus | string, BatchEventType[]> = {
+      [BatchStatus.HARVESTED]: [
+        BatchEventType.PROCESSED,
+        BatchEventType.SHIPPED,
+        BatchEventType.RECALLED,
+      ],
+      [BatchStatus.PROCESSED]: [
+        BatchEventType.SHIPPED,
+        BatchEventType.RECALLED,
+      ],
+      [BatchStatus.IN_TRANSIT]: [
+        BatchEventType.RECEIVED,
+        BatchEventType.RECALLED,
+      ],
+      [BatchStatus.WAREHOUSE]: [
+        BatchEventType.STORED,
+        BatchEventType.SOLD,
+        BatchEventType.RECALLED,
+      ],
+      [BatchStatus.SOLD]: [],
+      [BatchStatus.RECALLED]: [],
     }
 
-    if (!currentStatus || !(currentStatus in transitions)) {
+    const allow = allowed[currentStatus]
+
+    if (!allow) {
+      this.logger.warn(`Unknown batch status: ${currentStatus}`)
       throw new BadRequestException(
         `Invalid current batch status: ${currentStatus}`,
       )
     }
 
-    if (!nextEvent || !(nextEvent in BatchEventType)) {
-      throw new BadRequestException(`Invalid event type: ${nextEvent}`)
-    }
-
-    const allowed = transitions[currentStatus]
-
-    if (!allowed.includes(nextEvent)) {
+    if (!allow.includes(nextEvent)) {
       throw new BadRequestException(
-        `Invalid transition: cannot change batch status from ${currentStatus} → ${nextEvent}`,
+        `Invalid transition from status=${currentStatus} with event=${nextEvent}`,
       )
     }
   }

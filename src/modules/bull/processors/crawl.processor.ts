@@ -8,7 +8,7 @@ import { OnchainEventService } from '@app/modules/onchain-events/onchain-events.
 import { ParsedEvent } from '@app/modules/crawl/types/parsed-event.type'
 import { BatchesService } from '@app/modules/batches/batches.service'
 import { ProductService } from '@app/modules/product/product.service'
-import { BatchEventMap } from '@app/common/constant/batch-event.constant'
+import { OnchainIndexToEventType } from '@app/common/enums/batch.enum'
 
 @Processor('crawl')
 export class CrawlProcessor extends WorkerHost {
@@ -145,9 +145,12 @@ export class CrawlProcessor extends WorkerHost {
       return
     }
 
-    const mappedType = BatchEventMap[rawType]
+    const mappedType = OnchainIndexToEventType[rawType]
+
     if (!mappedType) {
-      this.logger.error(`[TraceEventRecorded] Unknown event type=${rawType}`)
+      this.logger.error(
+        `[TraceEventRecorded] Unknown event type index=${rawType}`,
+      )
       return
     }
 
