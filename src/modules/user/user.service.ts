@@ -57,6 +57,7 @@ export class UserService {
   async getMyProfile(user: User): Promise<User> {
     return this.userRepository.findOne({
       where: { id: user.id },
+      relations: ['organization'],
     })
   }
 

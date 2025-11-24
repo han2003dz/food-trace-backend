@@ -8,4 +8,8 @@ export class UpdateBatchStatusDto {
   @IsOptional()
   @IsString()
   metadata_uri?: string
+
+  @IsOptional()
+  @IsString()
+  receiver_wallet?: string
 }

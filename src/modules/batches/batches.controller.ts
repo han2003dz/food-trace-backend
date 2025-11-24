@@ -115,21 +115,6 @@ export class BatchesController {
     return this.batchesService.getBatchDetail(id)
   }
 
-  @Post(':id/update-status')
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Update batch status from on-chain data' })
-  @ApiResponse({
-    status: 200,
-    description: 'Batch status updated successfully',
-  })
-  async updateStatus(
-    @Param('id') id: string,
-    @Body() dto: UpdateBatchStatusDto,
-    @Req() req: Request,
-  ) {
-    return this.batchesService.updateBatchStatusFromOnchain(id, dto, req.user)
-  }
-
   @Patch(':id/transfer')
   @ApiBearerAuth()
   @ApiOperation({
@@ -145,6 +130,22 @@ export class BatchesController {
     @Body() dto: UpdateBatchStatusDto,
     @Req() req: Request,
   ) {
-    return this.batchesService.updateBatchStatusFromOnchain(id, dto, req.user)
+    return this.batchesService.recordTraceEventAndTransferOwnership(
+      id,
+      dto,
+      req.user,
+    )
+  }
+
+  @Get('/incoming/my')
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get incoming batches for the user' })
+  @ApiResponse({
+    status: 200,
+    description: 'Get incoming batches for the user successfully',
+  })
+  async getIncomingBatches(@Req() req: Request) {
+    return this.batchesService.getIncomingBatchesForUser(req.user)
   }
 }

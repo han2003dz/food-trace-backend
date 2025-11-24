@@ -79,6 +79,9 @@ export class BatchEntity {
   @Column({ default: false })
   onchain_synced: boolean
 
+  @Column({ name: 'pending_receiver_wallet', nullable: true })
+  pending_receiver_wallet: string
+
   @CreateDateColumn()
   created_at: Date
 
