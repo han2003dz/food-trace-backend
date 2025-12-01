@@ -17,6 +17,7 @@ import { MerkleRootEntity } from '@app/modules/merkle-root/entities/merkle-root.
 import { BatchCertificationEntity } from '@app/modules/certification/entities/batch-certification.entity'
 import { User } from '@app/modules/user/entities/user.entity'
 import { BatchStatus } from '@app/common/enums/batch.enum'
+import { BatchTransferEntity } from '@app/modules/transfer/entities/batch-transfer.entity'
 
 @Entity('batches')
 export class BatchEntity {
@@ -63,6 +64,9 @@ export class BatchEntity {
 
   @OneToMany(() => BatchEventEntity, (event) => event.batch)
   events: BatchEventEntity[]
+
+  @OneToMany(() => BatchTransferEntity, (t) => t.batch)
+  transfers: BatchTransferEntity[]
 
   @OneToOne(() => BatchCodeEntity, (code) => code.batch)
   code: BatchCodeEntity

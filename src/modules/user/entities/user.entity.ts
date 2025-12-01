@@ -27,7 +27,15 @@ export class User extends BaseUuidEntity {
 
   @Column({
     type: 'enum',
-    enum: ['PRODUCER', 'RETAILER', 'LOGISTICS', 'AUDITOR', 'ADMIN', 'CONSUMER'],
+    enum: [
+      'PRODUCER',
+      'TRANSPORTER',
+      'RETAILER',
+      'PROCESSOR',
+      'AUDITOR',
+      'ADMIN',
+      'CONSUMER',
+    ],
     default: 'CONSUMER',
   })
   role: string

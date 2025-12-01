@@ -5,6 +5,7 @@ import { OrganizationsService } from './organizations.service'
 import { OrganizationsController } from './organizations.controller'
 import { JwtModule } from '@nestjs/jwt'
 import { UserModule } from '../user/user.module'
+import { ConfigService } from '@nestjs/config'
 
 @Module({
   imports: [
@@ -16,7 +17,7 @@ import { UserModule } from '../user/user.module'
     UserModule,
   ],
   controllers: [OrganizationsController],
-  providers: [OrganizationsService],
+  providers: [OrganizationsService, ConfigService],
   exports: [OrganizationsService],
 })
 export class OrganizationsModule {}

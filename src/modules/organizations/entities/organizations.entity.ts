@@ -21,7 +21,7 @@ export class Organizations {
 
   @Column({
     type: 'enum',
-    enum: ['PRODUCER', 'RETAILER', 'LOGISTICS', 'AUDITOR'],
+    enum: ['PRODUCER', 'RETAILER', 'PROCESSOR', 'AUDITOR', 'TRANSPORTER'],
   })
   org_type: string
 
@@ -30,6 +30,9 @@ export class Organizations {
 
   @Column({ nullable: true })
   metadata_cid: string
+
+  @Column({ nullable: true })
+  location: string
 
   @Column({ default: true })
   active: boolean

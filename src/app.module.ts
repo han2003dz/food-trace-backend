@@ -17,6 +17,7 @@ import { BatchesModule } from './modules/batches/batches.module'
 import { MerkleRootModule } from './modules/merkle-root/merkle-root.module'
 import { QrScanLogModule } from './modules/qr-scan-logs/qr-scan-logs.module'
 import { OrganizationsModule } from './modules/organizations/organizations.module'
+import { TransferModule } from './modules/transfer/transfer.module'
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { OrganizationsModule } from './modules/organizations/organizations.modul
     MerkleRootModule,
     QrScanLogModule,
     OrganizationsModule,
+    TransferModule,
   ],
   controllers: [],
   providers: [

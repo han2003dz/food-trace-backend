@@ -34,13 +34,6 @@ import {
   EventTypeToOnchainIndex,
 } from '@app/common/enums/batch.enum'
 import { sha256 } from 'ethers/lib/utils'
-
-// const ROLE_PRODUCER = 1 << 0
-const ROLE_PROCESSOR = 1 << 1
-const ROLE_TRANSPORTER = 1 << 2
-const ROLE_RETAILER = 1 << 3
-// const ROLE_AUDITOR = 1 << 4
-
 @Injectable()
 export class BatchesService {
   private readonly logger = new Logger(BatchesService.name)
@@ -157,27 +150,6 @@ export class BatchesService {
       batch_code: batchCode,
       initial_data_hash,
       tx_hash: tx.hash,
-    }
-  }
-
-  async recordTraceEvent(
-    onchainBatchId: number,
-    eventType: number,
-    eventHash: string,
-  ) {
-    try {
-      const tx = await this.contract.recordTraceEvent(
-        onchainBatchId,
-        eventType,
-        eventHash,
-      )
-      await tx.wait()
-      this.logger.log(`✅ Trace event recorded for batch ${onchainBatchId}`)
-      return { txHash: tx.hash }
-    } catch (err: any) {
-      throw new BadRequestException(
-        `Failed to record trace event: ${err.reason || err.message}`,
-      )
     }
   }
 
@@ -445,7 +417,10 @@ export class BatchesService {
     })
   }
 
-  async getBatchDetail(id: string): Promise<BatchDetailResponseDto> {
+  async getBatchDetail(
+    id: string,
+    user: User,
+  ): Promise<BatchDetailResponseDto> {
     const batch = await this.batchRepo.findOne({
       where: { id },
       relations: [
@@ -456,17 +431,34 @@ export class BatchesService {
         'merkle_root',
         'events',
         'events.actor_org',
+        'transfers',
+        'transfers.from_org',
+        'transfers.to_org',
       ],
       order: {
-        events: {
-          created_at: 'ASC',
-        },
+        events: { created_at: 'ASC' },
+        transfers: { created_at: 'ASC' },
       },
     })
 
     if (!batch) throw new NotFoundException('Batch not found')
 
+    // Nếu không có user → newUser = null
+    const newUser = user?.id
+      ? await this.userRepo.findOne({
+          where: { id: user.id },
+          relations: ['organization'],
+        })
+      : null
+
+    // Safe-check 100%
+    const isOwner =
+      !!newUser?.organization?.id &&
+      !!batch?.current_owner?.id &&
+      newUser.organization.id === batch.current_owner.id
+
     const timeline = this.buildTimeline(batch)
+
     return {
       id: batch.id,
       batch_code: batch.code?.batch_code ?? null,
@@ -486,6 +478,8 @@ export class BatchesService {
         producer_name: (batch.product as any).producer_name ?? null,
         image_url: batch.product.image_url ?? null,
       },
+
+      isOwner,
 
       creator_org: batch.creator_org
         ? {
@@ -544,151 +538,6 @@ export class BatchesService {
     })
   }
 
-  // async recordTraceEventAndTransferOwnership(
-  //   id: string,
-  //   dto: UpdateBatchStatusDto,
-  //   user: User,
-  // ) {
-  //   const { event_type, metadata_uri, receiver_wallet } = dto
-
-  //   const [batch, fullUser] = await Promise.all([
-  //     this.batchRepo.findOne({
-  //       where: { id },
-  //       relations: ['creator_org', 'current_owner', 'product'],
-  //     }),
-  //     this.userRepo.findOne({
-  //       where: { id: user.id },
-  //       relations: ['organization'],
-  //     }),
-  //   ])
-
-  //   if (!batch) throw new NotFoundException('Batch not found')
-  //   if (!fullUser || !fullUser.organization)
-  //     throw new BadRequestException('User organization not found')
-
-  //   if (!batch.onchain_batch_id)
-  //     throw new BadRequestException('Batch is not yet registered on-chain')
-
-  //   const userOrg = fullUser.organization
-  //   const userWallet = fullUser.wallet_address
-
-  //   if (event_type === BatchEventType.SHIPPED) {
-  //     if (batch.current_owner?.id !== userOrg.id) {
-  //       throw new BadRequestException('Only current owner can SHIP this batch')
-  //     }
-  //     if (!receiver_wallet) {
-  //       throw new BadRequestException(
-  //         'receiver_wallet is required for SHIPPED event',
-  //       )
-  //     }
-  //     if (receiver_wallet.toLowerCase() === userWallet.toLowerCase()) {
-  //       throw new BadRequestException('Cannot ship to yourself')
-  //     }
-  //   } else if (event_type === BatchEventType.RECEIVED) {
-  //     if (
-  //       !batch.pending_receiver_wallet ||
-  //       batch.pending_receiver_wallet.toLowerCase() !== userWallet.toLowerCase()
-  //     ) {
-  //       throw new BadRequestException(
-  //         'You are not the assigned receiver for this batch',
-  //       )
-  //     }
-  //   } else {
-  //     if (batch.current_owner?.id !== userOrg.id) {
-  //       throw new BadRequestException(
-  //         'You are not the current owner of this batch',
-  //       )
-  //     }
-  //   }
-
-  //   // 3. Validate transition status (HARVESTED → PROCESSED/SHIPPED → ...)
-  //   this.ensureStatusTransition(batch.status as BatchStatus, event_type)
-
-  //   const ZERO_BYTES32 =
-  //     '0x0000000000000000000000000000000000000000000000000000000000000000'
-
-  //   const data_hash = metadata_uri
-  //     ? sha256(Buffer.from(metadata_uri))
-  //     : ZERO_BYTES32
-
-  //   const onchainType = EventTypeToOnchainIndex[event_type]
-  //   if (onchainType === undefined) {
-  //     throw new BadRequestException(`Unsupported event_type: ${event_type}`)
-  //   }
-
-  //   let receiver: string
-
-  //   if (event_type === BatchEventType.SHIPPED) {
-  //     receiver = receiver_wallet!
-  //     batch.pending_receiver_wallet = receiver_wallet!
-  //   } else {
-  //     receiver = '0x0000000000000000000000000000000000000000'
-  //   }
-
-  //   console.log({
-  //     currentOwner: batch.current_owner.wallet_address,
-  //     userWallet: fullUser.wallet_address,
-  //     status: batch.status,
-  //     eventTrying: event_type,
-  //     id: batch.onchain_batch_id,
-  //     onchainType,
-  //     data_hash,
-  //     receiver,
-  //   })
-
-  //   let tx: ethers.ContractTransaction
-  //   try {
-  //     // const role = await this.contract.setRoles(
-  //     //   '0xc93248d857180851868d9a756ca3c58F5EEc761e',
-  //     //   ROLE_PRODUCER,
-  //     // )
-  //     await Promise.all([
-  //       this.contract.setRoles(
-  //         '0xc93248d857180851868d9a756ca3c58F5EEc761e',
-  //         ROLE_PRODUCER,
-  //       ),
-  //       this.contract.setRoles(receiver, ROLE_TRANSPORTER),
-  //     ])
-  //     // console.log('onchain role =', role.toString())
-
-  //     // console.log('isProducer:', (role & (1 << 0)) !== 0)
-  //     // console.log('isProcessor:', (role & (1 << 1)) !== 0)
-  //     // console.log('isTransporter:', (role & (1 << 2)) !== 0)
-  //     // console.log('isRetailer:', (role & (1 << 3)) !== 0)
-  //     // console.log('isAuditor:', (role & (1 << 4)) !== 0)
-
-  //     tx = await this.contract.recordTraceEvent(
-  //       BigInt(batch.onchain_batch_id),
-  //       onchainType,
-  //       data_hash,
-  //       receiver,
-  //     )
-
-  //     this.logger.log(`⛓  Sending recordTraceEvent TX: ${tx.hash}`)
-  //     await tx.wait()
-  //   } catch (err: any) {
-  //     this.logger.error(`❌ On-chain TX failed: ${err.message}`)
-  //     throw new BadRequestException(
-  //       `Blockchain error: ${err.reason || err.message}`,
-  //     )
-  //   }
-
-  //   batch.tx_hash_pending = tx.hash
-
-  //   if (event_type === BatchEventType.RECEIVED) {
-  //     batch.pending_receiver_wallet = null
-  //   }
-
-  //   await this.batchRepo.save(batch)
-
-  //   return {
-  //     id: batch.id,
-  //     event_type,
-  //     tx_hash: tx.hash,
-  //     status: 'PENDING_ONCHAIN',
-  //   }
-  // }
-
   async recordTraceEventAndTransferOwnership(
     id: string,
     dto: UpdateBatchStatusDto,
@@ -696,7 +545,7 @@ export class BatchesService {
   ) {
     const { event_type, metadata_uri, receiver_wallet } = dto
 
-    // 1. Fetch batch và user
+    // 1. Fetch batch + user
     const [batch, fullUser] = await Promise.all([
       this.batchRepo.findOne({
         where: { id },
@@ -711,152 +560,152 @@ export class BatchesService {
     if (!batch) throw new NotFoundException('Batch not found')
     if (!fullUser || !fullUser.organization)
       throw new BadRequestException('User organization not found')
-    if (!batch.onchain_batch_id)
-      throw new BadRequestException('Batch is not yet registered on-chain')
 
-    // ❌ THÊM: Kiểm tra batch đã closed chưa
-    if (batch.closed) {
-      throw new BadRequestException('Batch is already closed (Sold/Recalled)')
-    }
+    if (!batch.onchain_batch_id)
+      throw new BadRequestException('Batch not registered on-chain')
+
+    if (batch.closed)
+      throw new BadRequestException('Batch already closed (Sold/Recalled)')
 
     const userWallet = fullUser.wallet_address.toLowerCase()
+    const needsReceiver = [BatchEventType.SHIPPED, BatchEventType.RECEIVED]
 
-    // 2. Validate business logic theo từng event type
+    // 2. Validate business logic
     if (event_type === BatchEventType.SHIPPED) {
-      // ✅ So sánh wallet address thay vì org.id
       if (
         !batch.current_owner ||
         batch.current_owner.wallet_address.toLowerCase() !== userWallet
       ) {
-        throw new BadRequestException('Only current owner can SHIP this batch')
+        throw new BadRequestException('Only current owner can SHIP')
       }
+
       if (!receiver_wallet) {
-        throw new BadRequestException(
-          'receiver_wallet is required for SHIPPED event',
-        )
+        throw new BadRequestException('receiver_wallet is required for SHIPPED')
       }
+
       if (receiver_wallet.toLowerCase() === userWallet) {
         throw new BadRequestException('Cannot ship to yourself')
       }
-      // ❌ THÊM: Kiểm tra batch không đang pending
+
       if (batch.pending_receiver_wallet) {
         throw new BadRequestException(
-          'Batch is already shipped and waiting to be received',
+          'Batch already shipped and waiting RECEIVED',
         )
       }
     } else if (event_type === BatchEventType.RECEIVED) {
-      if (!batch.pending_receiver_wallet) {
+      if (!batch.pending_receiver_wallet)
         throw new BadRequestException('No pending receiver for this batch')
-      }
-      if (batch.pending_receiver_wallet.toLowerCase() !== userWallet) {
-        throw new BadRequestException(
-          'You are not the assigned receiver for this batch',
-        )
-      }
+
+      if (batch.pending_receiver_wallet.toLowerCase() !== userWallet)
+        throw new BadRequestException('You are not assigned receiver')
     } else {
-      // Processed/Stored/Sold/Recalled/Custom
-      // ✅ So sánh wallet address
+      // All other events except SHIPPED + RECEIVED
       if (
         !batch.current_owner ||
         batch.current_owner.wallet_address.toLowerCase() !== userWallet
       ) {
-        throw new BadRequestException(
-          'You are not the current owner of this batch',
-        )
+        throw new BadRequestException('You are not the owner of this batch')
       }
-      // ❌ THÊM: Các event khác không được gọi khi đang pending
+
       if (batch.pending_receiver_wallet) {
         throw new BadRequestException(
-          'Batch is pending transfer. Only RECEIVED event is allowed.',
+          'Batch is pending transfer. Only RECEIVED allowed',
         )
       }
     }
 
-    // 3. Validate status transition
+    // 3. Validate transition
     this.ensureStatusTransition(batch.status as BatchStatus, event_type)
 
-    // 4. Prepare on-chain data
+    // 4. Prepare on-chain payload
     const ZERO_BYTES32 =
       '0x0000000000000000000000000000000000000000000000000000000000000000'
+
     const data_hash = metadata_uri
       ? sha256(Buffer.from(metadata_uri))
       : ZERO_BYTES32
 
     const onchainType = EventTypeToOnchainIndex[event_type]
+
     if (onchainType === undefined) {
       throw new BadRequestException(`Unsupported event_type: ${event_type}`)
     }
 
-    const receiver =
-      event_type === BatchEventType.SHIPPED
-        ? receiver_wallet!
-        : '0x0000000000000000000000000000000000000000'
+    // FIXED: SHIPPED + RECEIVED require receiver
+    const receiver = needsReceiver.includes(event_type)
+      ? receiver_wallet!
+      : ethers.constants.AddressZero
+    // Debug info
+    console.log('====== DEBUG TRANSFER ======')
+    console.log('Backend signer:', this.wallet.address)
+    console.log('Batch ID:', batch.onchain_batch_id)
+    console.log('Receiver:', receiver)
+    console.log('Event type:', event_type)
+    console.log('onchainType:', onchainType)
+    console.log('Data hash:', data_hash)
+    console.log('================================')
+    console.log('Using contract at:', this.contract.address)
 
-    // 5. ❌ XÓA PHẦN HARDCODE - Roles phải được quản lý đúng cách
-    // Roles nên được set khi user đăng ký, không phải mỗi lần transfer
-    // Hoặc nếu cần thiết, phải validate receiver có role phù hợp
+    const role = await this.contract.roles(receiver)
+    console.log('Receiver role:', role.toString())
+    // const info = await this.contract.getBatch(25)
+    // console.log('info', info)
+    // const [
+    //   productId,
+    //   creator,
+    //   currentOwner,
+    //   initialDataHash,
+    //   exists,
+    //   closed,
+    //   pendingReceiver,
+    // ] = await this.contract.getBatch(batch.onchain_batch_id)
 
-    // ✅ (Optional) Validate receiver có role phù hợp
-    if (event_type === BatchEventType.SHIPPED) {
-      try {
-        const receiverRole = await this.contract.roles(receiver_wallet)
-        const hasValidRole =
-          (receiverRole &
-            (ROLE_TRANSPORTER | ROLE_PROCESSOR | ROLE_RETAILER)) !==
-          0
-        if (!hasValidRole) {
-          throw new BadRequestException(
-            'Receiver does not have required role (Transporter/Processor/Retailer)',
-          )
-        }
-      } catch (err) {
-        this.logger.error(`Failed to check receiver role: ${err.message}`)
-        throw new BadRequestException('Cannot verify receiver role')
-      }
-    }
+    // console.log('===== ONCHAIN BATCH INFO =====')
+    // console.log('Product ID:', productId.toString())
+    // console.log('Creator:', creator)
+    // console.log('Current Owner:', currentOwner)
+    // console.log('Initial Data Hash:', initialDataHash)
+    // console.log('Exists:', exists)
+    // console.log('Closed:', closed)
+    // console.log('Pending Receiver:', pendingReceiver)
+    // console.log('================================')
 
-    // 6. Call contract
+    // 5. Call contract
+
+    // const batch2 = await this.contract.getBatch(batch.onchain_batch_id)
+    // console.log('On-chain batch:', batch2)
+
     let tx: ethers.ContractTransaction
     try {
-      const newBatch = await this.contract.getBatchEvents(
+      tx = await this.contract.recordTraceEvent(
         batch.onchain_batch_id,
-      )
-      console.log('newBatch', newBatch)
-      console.log('📦 Batch info:', {
-        creator: newBatch.creator,
-        currentOwner: newBatch.currentOwner,
-        pendingReceiver: newBatch.pendingReceiver,
-        closed: newBatch.closed,
-      })
-
-      tx = await this.contract.callStatic.recordTraceEvent(
-        batch.onchain_batch_id,
-        onchainType,
+        2,
         data_hash,
-        receiver,
+        '0x774ef30d3Bf1e32212f65b411dFa5bB8d9fe0373',
       )
-
-      this.logger.log(`⛓  Sending recordTraceEvent TX: ${tx.hash}`)
+      this.logger.log(`⛓ TX: ${tx.hash}`)
       await tx.wait()
     } catch (err: any) {
-      this.logger.error(`❌ On-chain TX failed: ${err.message}`)
+      this.logger.error(`❌ On-chain failed: ${err.message}`)
       throw new BadRequestException(
         `Blockchain error: ${err.reason || err.message}`,
       )
     }
 
-    // 7. Update DB
+    // 6. Update DB
     batch.tx_hash_pending = tx.hash
 
     if (event_type === BatchEventType.SHIPPED) {
       batch.pending_receiver_wallet = receiver_wallet
-    } else if (event_type === BatchEventType.RECEIVED) {
-      // ✅ Update current owner wallet
-      batch.current_owner.wallet_address = userWallet
-      batch.pending_receiver_wallet = null
-      // ✅ Nếu cần update current_owner org
+    }
+
+    if (event_type === BatchEventType.RECEIVED) {
+      // FIXED: owner = receiver's organization, not user
       batch.current_owner = fullUser.organization
-    } else if (
+      batch.pending_receiver_wallet = null
+    }
+
+    if (
       event_type === BatchEventType.SOLD ||
       event_type === BatchEventType.RECALLED
     ) {
@@ -873,35 +722,82 @@ export class BatchesService {
     }
   }
 
-  private buildTimeline(batch: BatchEntity): BatchTimelineItemDto[] {
-    if (!batch.events.length) return []
+  async transfer(id: number, dto: UpdateBatchStatusDto, user: User) {
+    if (!user) {
+      throw new BadRequestException('Unauthorized')
+    }
+    const receiver = dto.receiver_wallet
+    try {
+      this.logger.debug('======= TRANSFER DEBUG =======')
+      this.logger.debug(`Signer: ${this.wallet.address}`)
+      this.logger.debug(`Batch: ${26}`)
+      this.logger.debug(`Receiver: ${receiver}`)
 
+      const eventType = 2 // SHIPPED
+
+      // Nếu bạn không có data hash FE → dùng dummy hash
+      const dataHash = ethers.utils.formatBytes32String('')
+
+      // ==== CALL HÀM ĐÚNG CỦA CONTRACT ====
+      const tx = await this.contract.recordTraceEvent(
+        BigInt(26),
+        eventType,
+        dataHash,
+        receiver,
+      )
+
+      this.logger.debug(`TX Pending: ${tx.hash}`)
+      const receipt = await tx.wait()
+
+      this.logger.debug(`TX Confirmed: ${receipt.transactionHash}`)
+
+      return {
+        success: true,
+        txHash: receipt.transactionHash,
+      }
+    } catch (err) {
+      this.logger.error('❌ Transfer failed', err)
+      throw err
+    }
+  }
+
+  private buildTimeline(batch: BatchEntity): BatchTimelineItemDto[] {
     const labelMap: Record<string, string> = {
       CREATED: 'Batch created',
       PROCESSED: 'Processed',
       SHIPPED: 'Shipped',
       RECEIVED: 'Received',
-      STORED: 'Stored in warehouse',
-      SOLD: 'Sold to customer',
-      RECALLED: 'Recalled from market',
+      STORED: 'Stored',
+      SOLD: 'Sold',
+      TRANSFER: 'Transferred',
     }
 
-    return batch.events
-      .slice()
-      .sort((a, b) => {
-        const ta = a.timestamp ?? a.created_at
-        const tb = b.timestamp ?? b.created_at
+    // On-chain events
+    const onchainEvents = (batch.events ?? []).map((e) => ({
+      id: `onchain-${e.id}`,
+      event_type: e.event_type,
+      label: labelMap[e.event_type] ?? e.event_type,
+      at: (e.timestamp ?? e.created_at)?.toISOString(),
+      actor_org_name: e.actor_org?.name ?? null,
+      tx_hash: e.tx_hash ?? null,
+      source: 'onchain',
+    }))
 
-        return ta.getTime() - tb.getTime()
-      })
-      .map((e) => ({
-        id: e.id,
-        event_type: e.event_type,
-        label: labelMap[e.event_type] ?? e.event_type,
-        at: (e.timestamp ?? e.created_at).toISOString(),
-        actor_org_name: e.actor_org?.name ?? null,
-        tx_hash: e.tx_hash ?? null,
-      }))
+    // Off-chain transfers
+    const transfers = (batch.transfers ?? []).map((t) => ({
+      id: `transfer-${t.id}`,
+      event_type: 'TRANSFER',
+      label: `${t.from_org?.name} → ${t.to_org?.name}`,
+      at: t.created_at.toISOString(),
+      actor_org_name: `${t.from_org?.name} → ${t.to_org?.name}`,
+      tx_hash: null,
+      note: t.note ?? null,
+      source: 'transfer',
+    }))
+
+    return [...onchainEvents, ...transfers].sort(
+      (a, b) => new Date(a.at).getTime() - new Date(b.at).getTime(),
+    )
   }
 
   private ensureStatusTransition(

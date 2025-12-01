@@ -55,4 +55,5 @@ export class BatchDetailResponseDto {
 
   created_at: string
   updated_at: string
+  isOwner?: boolean
 }

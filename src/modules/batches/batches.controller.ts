@@ -50,30 +50,6 @@ export class BatchesController {
     return this.batchesService.createBatchOnchain(dto, req.user)
   }
 
-  @Post('/:onchainBatchId/event')
-  @ApiBearerAuth()
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Record trace event for a batch on-chain' })
-  @ApiResponse({
-    status: 200,
-    description: 'Trace event recorded successfully',
-  })
-  async recordTraceEvent(
-    @Param('onchainBatchId') onchainBatchId: number,
-    @Body()
-    body: {
-      eventType: number
-      eventHash: string
-    },
-  ) {
-    const { eventType, eventHash } = body
-    return this.batchesService.recordTraceEvent(
-      onchainBatchId,
-      eventType,
-      eventHash,
-    )
-  }
-
   @Post('/:onchainBatchId/commit')
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
@@ -111,8 +87,8 @@ export class BatchesController {
     status: 200,
     description: 'Batch detail fetched successfully',
   })
-  getBatchDetail(@Param('id') id: string) {
-    return this.batchesService.getBatchDetail(id)
+  getBatchDetail(@Param('id') id: string, @Req() req: Request) {
+    return this.batchesService.getBatchDetail(id, req.user)
   }
 
   @Patch(':id/transfer')

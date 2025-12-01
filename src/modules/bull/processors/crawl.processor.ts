@@ -94,10 +94,12 @@ export class CrawlProcessor extends WorkerHost {
    */
   private async handleProductCreated(event: ParsedEvent) {
     const { args, tx_hash } = event
+    console.log('args products', args)
 
     console.log('tx_hash', tx_hash)
 
     const productId = Number(args?.productId)
+    console.log('productId', productId)
     const metadataURI = args?.metadataURI
     const name = args?.name
 
@@ -122,7 +124,9 @@ export class CrawlProcessor extends WorkerHost {
    */
   private async handleBatchCreated(event: ParsedEvent) {
     const { args, tx_hash } = event
+    console.log('args batch', args)
     const batchId = Number(args?.batchId)
+    console.log('batchid', batchId)
 
     await this.batchesService.updateAfterOnchainSynced({
       onchain_batch_id: batchId,

@@ -8,7 +8,8 @@ import {
 
 export enum OrgType {
   PRODUCER = 'PRODUCER',
-  LOGISTICS = 'LOGISTICS',
+  PROCESSOR = 'PROCESSOR',
+  TRANSPORTER = 'TRANSPORTER',
   RETAILER = 'RETAILER',
   AUDITOR = 'AUDITOR',
 }
@@ -17,6 +18,10 @@ export class CreateOrganizationDto {
   @IsString()
   @IsNotEmpty()
   name: string
+
+  @IsString()
+  @IsNotEmpty()
+  location: string
 
   @IsEnum(OrgType)
   org_type: OrgType

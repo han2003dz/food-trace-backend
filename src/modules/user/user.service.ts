@@ -92,7 +92,8 @@ export class UserService {
     const roleMap = {
       PRODUCER: ROLE.PRODUCER,
       RETAILER: ROLE.RETAILER,
-      LOGISTICS: ROLE.LOGISTICS,
+      PROCESSOR: ROLE.PROCESSOR,
+      TRANSPORTER: ROLE.TRANSPORTER,
       AUDITOR: ROLE.AUDITOR,
       ADMIN: ROLE.ADMIN,
     } as const

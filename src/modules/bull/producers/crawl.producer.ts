@@ -27,14 +27,14 @@ export class CrawlProducer {
         'config.rpcLimitTestnet',
         5,
       )
-      const [cachedBlock, latestBlock] = await Promise.all([
+      const [latestBlock] = await Promise.all([
         this.cacheable.get<number>(blockKey),
         this.web3Service.getLatestBlockNumber(),
       ])
 
-      const fromBlockNumber =
-        cachedBlock ??
-        this.configService.get<number>('config.defaultBlockNumber')
+      const fromBlockNumber = this.configService.get<number>(
+        'config.defaultBlockNumber',
+      )
       const toBlockNumber = Math.min(
         fromBlockNumber + blockPerTime - 1,
         latestBlock,
